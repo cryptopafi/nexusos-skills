@@ -1,0 +1,23 @@
+{
+  "skill_name": "tech",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "tech: am nevoie de o procedură pentru daily backup al memoriei NexusOS — la 03:00 noaptea, să facă backup la ~/.nexus/memory/ și ~/.claude/projects/ pe VPS 89.116.229.189. Dacă backup-ul pică, trimite alert pe Telegram.",
+      "expected_output": "Procedură completă cu §1-§4, enforcement loop cu WHERE=daemon/LaunchAgent și HOW=verificare exit code, Test Cases (normal/edge/failure), Cortex save metadata, 2 VK-uri emise",
+      "files": ["/Users/pafi/.nexus/procedures/TECH.md"]
+    },
+    {
+      "id": 2,
+      "prompt": "adaugă procedură pentru onboarding de agent nou în NexusOS — when Pafi adaugă un agent nou (ex: MERCURY sau un nou sub-agent), care sunt pașii exacți: creare SOUL.md, înregistrare în AGENTS.md, configurare heartbeat, smoke test.",
+      "expected_output": "Procedură cu §1 (ce se întâmplă fără ea: agent nou nu e monitorizat, nu apare în SENTINEL health), §2 cu pași numerotați clari și Test Cases (normal flow/edge case/failure case), §4 cu CONNECT la SENTINEL și procedure-health.json, status DRAFT, regulă asociată identificată sau marcată Pending",
+      "files": ["/Users/pafi/.nexus/procedures/TECH.md"]
+    },
+    {
+      "id": 3,
+      "prompt": "tech ESCALATION-SENTINEL — procedura pentru când SENTINEL e offline mai mult de 30 minute: Genie detectează absența SENTINEL-HEALTH.md update, încearcă restart, dacă nu merge → alertă Pafi pe Telegram, dacă nu răspunde în 10 min → fallback manual checklist.",
+      "expected_output": "Procedură operațională cu §2 incluzând Test Cases (normal flow: SENTINEL stale 31min → restart automat; edge case: restart eșuat de 2x → escalare Pafi; failure case: când NU se aplică, ex. SENTINEL down intentionat), enforcement loop WHERE=GENIE orchestrator heartbeat check, HOW=check timestamp SENTINEL-HEALTH.md > 30min stale, CONNECT=SENTINEL agent + NEXUS-APPROVAL-GATE.md, VERIFY checkpoint prezent, Cortex collection='procedures'",
+      "files": ["/Users/pafi/.nexus/procedures/TECH.md"]
+    }
+  ]
+}

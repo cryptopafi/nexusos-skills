@@ -1,0 +1,12 @@
+{
+  "eval_id": 3,
+  "config": "with_skill",
+  "expectations": [
+    {"text": "§1 Problema present with at least 2 sentences", "passed": true, "evidence": "§1 Problema: ce face SENTINEL, consecințe offline + 5 scenarii de failure"},
+    {"text": "§2 Procedura has numbered steps", "passed": true, "evidence": "5 pași numerotați: Detecție → Restart → Alertă → Pas 4A/4B → Recovery; + 3 test cases"},
+    {"text": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections", "passed": true, "evidence": "WHERE (heartbeat.sh + GENIE HEARTBEAT Step 4.5 + session checklist), WHEN, HOW, CONNECT, VERIFY - toate prezente"},
+    {"text": "§3 includes has_enforcement_loop: true and tech_version", "passed": true, "evidence": "Full JSON metadata cu has_enforcement_loop: true și tech_version: 1.4"},
+    {"text": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines", "passed": true, "evidence": "✅ [PROC] FORGE | §1✓ §2✓ §3✓ §4✓ VER✓ + ✅ [CORTEX] ESCALATION-SENTINEL | rule: INFRA-H-007"}
+  ],
+  "pass_rate": 1.0
+}

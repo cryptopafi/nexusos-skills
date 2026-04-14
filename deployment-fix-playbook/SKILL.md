@@ -1,0 +1,1 @@
+Deployment fix procedure: restart service, verify health endpoint, rerun forwarder, confirm DB write.

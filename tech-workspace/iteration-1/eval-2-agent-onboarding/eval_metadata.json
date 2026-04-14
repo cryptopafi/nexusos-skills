@@ -1,0 +1,12 @@
+{
+  "eval_id": 2,
+  "eval_name": "agent-onboarding",
+  "prompt": "adaugă procedură pentru onboarding de agent nou în NexusOS — when Pafi adaugă un agent nou (ex: MERCURY sau un nou sub-agent), care sunt pașii exacți: creare SOUL.md, înregistrare în AGENTS.md, configurare heartbeat, smoke test.",
+  "assertions": [
+    {"id": "has_problem_section", "description": "§1 Problema present with at least 2 sentences"},
+    {"id": "has_numbered_steps", "description": "§2 Procedura has numbered steps"},
+    {"id": "has_enforcement_loop", "description": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections"},
+    {"id": "has_cortex_metadata", "description": "§3 includes has_enforcement_loop: true and tech_version"},
+    {"id": "has_vk_output", "description": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines"}
+  ]
+}

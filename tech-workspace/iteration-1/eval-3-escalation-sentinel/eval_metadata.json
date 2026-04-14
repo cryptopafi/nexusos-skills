@@ -1,0 +1,12 @@
+{
+  "eval_id": 3,
+  "eval_name": "escalation-sentinel",
+  "prompt": "tech ESCALATION-SENTINEL — procedura pentru când SENTINEL e offline mai mult de 30 minute: Genie detectează absența SENTINEL-HEALTH.md update, încearcă restart, dacă nu merge → alertă Pafi pe Telegram, dacă nu răspunde în 10 min → fallback manual checklist.",
+  "assertions": [
+    {"id": "has_problem_section", "description": "§1 Problema present with at least 2 sentences"},
+    {"id": "has_numbered_steps", "description": "§2 Procedura has numbered steps"},
+    {"id": "has_enforcement_loop", "description": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections"},
+    {"id": "has_cortex_metadata", "description": "§3 includes has_enforcement_loop: true and tech_version"},
+    {"id": "has_vk_output", "description": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines"}
+  ]
+}

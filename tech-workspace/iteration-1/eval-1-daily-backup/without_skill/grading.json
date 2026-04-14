@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "config": "without_skill",
+  "expectations": [
+    {"text": "§1 Problema present with at least 2 sentences", "passed": false, "evidence": "Are 'OBJECTIVE' section cu 1 propoziție — nu respectă §1 FORGE format (lipsesc situațiile acoperite ca bullet list)"},
+    {"text": "§2 Procedura has numbered steps", "passed": true, "evidence": "Are pași numerotați în script + setup steps"},
+    {"text": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections", "passed": false, "evidence": "Grep: zero matches pentru WHERE/WHEN/HOW/CONNECT/VERIFY — enforcement loop complet absent"},
+    {"text": "§3 includes has_enforcement_loop: true and tech_version", "passed": false, "evidence": "Grep: zero matches — nu există §3 Cortex Logging cu metadata FORGE"},
+    {"text": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines", "passed": false, "evidence": "Grep: zero matches — VK-urile lipsesc complet"}
+  ],
+  "pass_rate": 0.2
+}

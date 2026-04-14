@@ -1,0 +1,12 @@
+{
+  "eval_id": 3,
+  "config": "without_skill",
+  "expectations": [
+    {"text": "§1 Problema present with at least 2 sentences", "passed": false, "evidence": "Are 4 faze cu timeline dar nu §1 Problema FORGE — nu răspunde la 'De ce există? Ce se întâmplă fără ea?'"},
+    {"text": "§2 Procedura has numbered steps", "passed": true, "evidence": "4 faze cu pași: Detection T+0, Restart T+1, Alertă T+3, Fallback T+13"},
+    {"text": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections", "passed": false, "evidence": "Grep: zero matches — enforcement loop absent"},
+    {"text": "§3 includes has_enforcement_loop: true and tech_version", "passed": false, "evidence": "Grep: zero matches — Cortex metadata FORGE absent"},
+    {"text": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines", "passed": false, "evidence": "Grep: zero matches — VK-urile lipsesc"}
+  ],
+  "pass_rate": 0.2
+}

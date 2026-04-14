@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "config": "with_skill",
+  "expectations": [
+    {"text": "§1 Problema present with at least 2 sentences", "passed": true, "evidence": "§1 Problema: 2 paragrafe + 4 situații acoperite ca bullet list"},
+    {"text": "§2 Procedura has numbered steps", "passed": true, "evidence": "Pas 1-5 numerotați + Test Cases (normal/edge/failure)"},
+    {"text": "§4 has WHERE, WHEN, HOW, CONNECT, VERIFY subsections", "passed": true, "evidence": "Lines 99-124: toate subsecțiunile prezente explicit"},
+    {"text": "§3 includes has_enforcement_loop: true and tech_version", "passed": true, "evidence": "Lines 88-89: 'has_enforcement_loop': true, 'tech_version': '1.4'"},
+    {"text": "Both VK lines emitted: [PROC] FORGE and [CORTEX] lines", "passed": true, "evidence": "Lines 181+183: ✅ [PROC] FORGE | §1✓ §2✓ §3✓ §4✓ VER✓ + ✅ [CORTEX]"}
+  ],
+  "pass_rate": 1.0
+}
