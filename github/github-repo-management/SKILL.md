@@ -500,6 +500,86 @@ for g in json.load(sys.stdin):
     print(f\"  {g['id']}  {g['description'] or '(no desc)':40}  {files}\")"
 ```
 
+## 11. Auditing Many Private Repos for a Specific File
+
+When you need to answer questions like "check `USER.md` in all my private repos" or audit for a config file across many repositories, prefer this order:
+
+### Fast path (API / metadata only)
+
+```bash
+# List private repos
+gh repo list "$GH_USER" --visibility private --limit 200 --json nameWithOwner,defaultBranchRef
+```
+
+You can try Git tree enumeration per repo:
+
+```bash
+# May work for smaller repos
+OWNER_REPO="owner/repo"
+BRANCH="main"
+gh api repos/$OWNER_REPO/git/trees/$BRANCH?recursive=1
+```
+
+### Important pitfall: don't trust tree API or code search for final answers
+
+In practice, two failure modes show up during bulk audits:
+
+1. `git/trees?...recursive=1` on large/private repos can return payloads that are truncated or contain characters that make downstream JSON parsing fail in tooling.
+2. GitHub code search (`search/code`) can miss matches in private repos, backups, exported workspaces, or repos that are not fully indexed.
+
+If the answer matters, do **not** stop at API search results.
+
+### Reliable method (recommended): shallow clone then scan locally
+
+This is the robust approach validated in real use.
+
+```bash
+BASE=~/tmp/github-private-scan
+mkdir -p "$BASE"
+
+# Get private repos
+REPOS=$(gh repo list "$GH_USER" --visibility private --limit 200 --json nameWithOwner | jq -r '.[].nameWithOwner')
+
+for REPO in $REPOS; do
+  NAME=$(basename "$REPO")
+  TARGET="$BASE/$NAME"
+  rm -rf "$TARGET"
+  git clone --depth 1 git@github.com:$REPO.git "$TARGET"
+
+  # case-insensitive filename scan
+  find "$TARGET" -type f \( -name 'USER.md' -o -name 'user.md' \)
+
+done
+```
+
+To inspect content previews:
+
+```bash
+FILE="/absolute/path/to/USER.md"
+sed -n '1,25p' "$FILE"
+```
+
+### Why this is the preferred audit method
+
+- Cloning with `--depth 1` is usually fast enough for 10-50 repos.
+- Local filesystem scan is deterministic.
+- Finds files inside exported workspaces, backups, archives, and nested directories that code search may miss.
+- Lets you immediately open the files and compare profile differences.
+
+### Reporting pattern
+
+For each repo, report:
+- whether the file exists
+- exact relative path(s)
+- whether matches are primary files vs backup/archive copies
+- short preview / summary of what differs across matches
+
+### Use this method when
+
+- auditing many private repos
+- comparing `USER.md`, `AGENTS.md`, `.env.example`, workflow files, or policy docs
+- you need high confidence and cannot tolerate search false negatives
+
 ## Quick Reference Table
 
 | Action | gh | git + curl |
