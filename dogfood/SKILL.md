@@ -8,6 +8,10 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*)
 
 Systematically explore a web application, find issues, and produce a report with full reproduction evidence for every finding.
 
+**Use for:** live web apps, localhost dev builds, staging environments, deployed URLs.
+
+**Do NOT use for:** auditing source code or HTML/JS files directly, running automated unit/integration test suites, performance benchmarking or load testing, accessibility-only audits without a running app.
+
 ## Setup
 
 Only the **Target URL** is required. Everything else has sensible defaults -- use them unless the user explicitly provides an override.
@@ -54,6 +58,8 @@ agent-browser --session {SESSION} open {TARGET_URL}
 agent-browser --session {SESSION} wait --load networkidle
 ```
 
+**If `open` times out or fails:** retry once with a 10-second delay. If it fails again, report the URL as unreachable and stop -- do not proceed without a working session.
+
 ### 2. Authenticate
 
 If the app requires login:
@@ -74,6 +80,8 @@ After successful login, save state for potential reuse:
 ```bash
 agent-browser --session {SESSION} state save {OUTPUT_DIR}/auth-state.json
 ```
+
+**If login fails:** ask the user to confirm credentials before retrying. Do not retry with the same credentials more than once.
 
 ### 3. Orient
 
@@ -106,6 +114,10 @@ agent-browser --session {SESSION} screenshot --annotate {OUTPUT_DIR}/screenshots
 agent-browser --session {SESSION} errors
 agent-browser --session {SESSION} console
 ```
+
+**If a command hangs or times out:** kill it after 15 seconds, log the timeout as a finding (e.g., "Page navigation timed out on /settings"), and continue to the next section. Do not let a single stuck command halt the entire session.
+
+**If `screenshot` fails:** retry once. If it fails again, note the failure in the report and continue -- do not block issue documentation on a screenshot.
 
 Use your judgment on how deep to go. Spend more time on core features and less on peripheral pages. If you find a cluster of issues in one area, investigate deeper.
 
@@ -152,6 +164,8 @@ agent-browser --session {SESSION} screenshot --annotate {OUTPUT_DIR}/screenshots
 agent-browser --session {SESSION} record stop
 ```
 
+**If `record stop` fails or the process is unresponsive:** kill the recording process via `kill`, note in the report that the video may be incomplete, and continue. A partial video is better than a stalled session.
+
 5. Write numbered repro steps in the report, each referencing its screenshot.
 
 #### Static / visible-on-load issues (typos, placeholder text, clipped text, misalignment, console errors on load)
@@ -187,6 +201,32 @@ agent-browser --session {SESSION} close
 
 3. Tell the user the report is ready and summarize findings: total issues, breakdown by severity, and the most critical items.
 
+## Edge Cases
+
+| Situation | How to Handle |
+|-----------|---------------|
+| App requires login but no credentials provided | Ask the user before starting. Do not attempt to guess or skip authentication. |
+| OTP / MFA required mid-login | Pause and ask the user for the code. Wait for their response before continuing. |
+| Auth session expires mid-session | Re-authenticate using saved credentials. If credentials are gone, ask the user. |
+| App is behind VPN / returns 403 or connection refused | Report as unreachable, stop. Note the barrier in the report summary. |
+| Single-page app with no URL changes | Navigate entirely via UI interactions. Document page state by section name, not URL. |
+| Navigation hangs with no response for >15s | Kill the command, log a timeout finding, move to the next section. |
+| `screenshot` or `record` command fails | Retry once. On second failure, note it in the report and continue without the artifact. |
+| Target is localhost and port is not running | Report as unreachable. Ask the user to start the dev server before retrying. |
+| App shows blank page or JS crash on load | Document as CRITICAL finding immediately. Capture console errors. Do not explore further until resolved or confirmed as a known issue. |
+
+## Error Contract
+
+| Error | Cause | Resolution |
+|-------|-------|------------|
+| `agent-browser open` fails / times out | URL unreachable, network issue, app not running | Retry once after 10s. If still failing, stop and report to user. |
+| `agent-browser snapshot` returns empty | Page still loading, JS crash, or blank state | Wait 2s and retry. If still empty, capture console errors and continue. |
+| `agent-browser screenshot` fails | Browser context lost, disk full, path error | Retry once. On failure, note missing artifact in report and continue. |
+| `agent-browser record stop` hangs | Recording process unresponsive | Kill the process via `kill`, flag video as potentially incomplete in report. |
+| `agent-browser fill` / `click` ref not found | Snapshot is stale or page changed | Re-run `snapshot -i` to refresh refs, then retry the action once. |
+| `agent-browser errors` / `console` returns error | Not a blocker -- this is expected output | Parse and include in issue evidence. Not an agent-browser failure. |
+| Session crashes mid-run | Browser crash, OOM, or agent-browser daemon failure | Do not restart the session from scratch. Report findings collected so far. Ask user whether to continue with a fresh session. |
+
 ## Guidance
 
 - **Repro is everything.** Every issue needs proof -- but match the evidence to the issue. Interactive bugs need video and step-by-step screenshots. Static bugs (typos, placeholder text, visual glitches visible on load) only need a single annotated screenshot.
@@ -202,6 +242,7 @@ agent-browser --session {SESSION} close
 - **Type like a human.** When filling form fields during video recording, use `type` instead of `fill` -- it types character-by-character. Use `fill` only outside of video recording when speed matters.
 - **Pace repro videos for humans.** Add `sleep 1` between actions and `sleep 2` before the final result screenshot. Videos should be watchable at 1x speed -- a human reviewing the report needs to see what happened, not a blur of instant state changes.
 - **Be efficient with commands.** Batch multiple `agent-browser` commands in a single shell call when they are independent (e.g., `agent-browser ... screenshot ... && agent-browser ... console`). Use `agent-browser --session {SESSION} scroll down 300` for scrolling -- do not use `key` or `evaluate` to scroll.
+- **Don't let one failure stall the session.** If a command fails twice, note it in the report and move on. Partial evidence on many issues is more valuable than a complete stall.
 
 ## References
 

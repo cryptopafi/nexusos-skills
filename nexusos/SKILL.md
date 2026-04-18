@@ -114,7 +114,7 @@ Alerts: {alerts din SENTINEL-HEALTH.md sau "none"}
 - Cuvinte cheie `research, analyze, investigate, compare, review` → **MEDIUM**
 - Altfel → **LOW**
 
-Budget estimat: LOW=$0.50 | MEDIUM=$2.00 | HIGH=$5.00
+Budget estimat: LOW=USD0.50 | MEDIUM=USD2.00 | HIGH=USD5.00
 
 #### PASUL 3: Check Agent Status
 
