@@ -1,86 +1,53 @@
-# Dogfood QA Report
-
-**Target:** {target_url}
-**Date:** {date}
-**Scope:** {scope_description}
-**Tester:** Hermes Agent (automated exploratory QA)
-
----
-
-## Executive Summary
-
-| Severity | Count |
-|----------|-------|
-| 🔴 Critical | {critical_count} |
-| 🟠 High | {high_count} |
-| 🟡 Medium | {medium_count} |
-| 🔵 Low | {low_count} |
-| **Total** | **{total_count}** |
-
-**Overall Assessment:** {one_sentence_assessment}
-
----
-
-## Issues
-
-<!-- Repeat this section for each issue found, sorted by severity (Critical first) -->
-
-### Issue #{issue_number}: {issue_title}
+# Dogfood Report: {APP_NAME}
 
 | Field | Value |
 |-------|-------|
-| **Severity** | {severity} |
-| **Category** | {category} |
-| **URL** | {url_where_found} |
+| **Date** | {DATE} |
+| **App URL** | {URL} |
+| **Session** | {SESSION_NAME} |
+| **Scope** | {SCOPE} |
 
-**Description:**
-{detailed_description_of_the_issue}
+## Summary
 
-**Steps to Reproduce:**
-1. {step_1}
-2. {step_2}
-3. {step_3}
+| Severity | Count |
+|----------|-------|
+| Critical | 0 |
+| High | 0 |
+| Medium | 0 |
+| Low | 0 |
+| **Total** | **0** |
 
-**Expected Behavior:**
-{what_should_happen}
+## Issues
 
-**Actual Behavior:**
-{what_actually_happens}
+<!-- Copy this block for each issue found. Interactive issues need video + step-by-step screenshots. Static issues (typos, visual glitches) only need a single screenshot -- set Repro Video to N/A. -->
 
-**Screenshot:**
-MEDIA:{screenshot_path}
+### ISSUE-001: {Short title}
 
-**Console Errors** (if applicable):
-```
-{console_error_output}
-```
+| Field | Value |
+|-------|-------|
+| **Severity** | critical / high / medium / low |
+| **Category** | visual / functional / ux / content / performance / console / accessibility |
+| **URL** | {page URL where issue was found} |
+| **Repro Video** | {path to video, or N/A for static issues} |
 
----
+**Description**
 
-<!-- End of per-issue section -->
+{What is wrong, what was expected, and what actually happened.}
 
-## Issues Summary Table
+**Repro Steps**
 
-| # | Title | Severity | Category | URL |
-|---|-------|----------|----------|-----|
-| {n} | {title} | {severity} | {category} | {url} |
+<!-- Each step has a screenshot. A reader should be able to follow along visually. -->
 
-## Testing Coverage
+1. Navigate to {URL}
+   ![Step 1](screenshots/issue-001-step-1.png)
 
-### Pages Tested
-- {list_of_pages_visited}
+2. {Action -- e.g., click "Settings" in the sidebar}
+   ![Step 2](screenshots/issue-001-step-2.png)
 
-### Features Tested
-- {list_of_features_exercised}
+3. {Action -- e.g., type "test" in the search field and press Enter}
+   ![Step 3](screenshots/issue-001-step-3.png)
 
-### Not Tested / Out of Scope
-- {areas_not_covered_and_why}
-
-### Blockers
-- {any_issues_that_prevented_testing_certain_areas}
+4. **Observe:** {what goes wrong -- e.g., the page shows a blank white screen instead of search results}
+   ![Result](screenshots/issue-001-result.png)
 
 ---
-
-## Notes
-
-{any_additional_observations_or_recommendations}
