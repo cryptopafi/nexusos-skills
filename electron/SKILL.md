@@ -8,6 +8,28 @@ allowed-tools: Bash(agent-browser:*), Bash(npx agent-browser:*)
 
 Automate any Electron desktop app using agent-browser. Electron apps are built on Chromium and expose a Chrome DevTools Protocol (CDP) port that agent-browser can connect to, enabling the same snapshot-interact workflow used for web pages.
 
+## Anti-Examples
+
+Do NOT trigger this skill when:
+- The user wants to automate a **web browser** (use agent-browser directly without Electron setup)
+- The user wants to scrape a **website** (use agent-browser or apify skills)
+- The app is **not Electron-based** (e.g., native Swift/AppKit macOS apps, Qt apps — CDP will not work)
+- The user wants to automate a **CLI tool** (use Bash directly)
+- The request is about **building** an Electron app, not automating one
+
+## Input Validation
+
+Before proceeding, verify:
+
+| Input | Required | Valid Values | Fail Action |
+|-------|----------|--------------|-------------|
+| App name / path | Yes | Known Electron app or explicit `.app`/`.exe` path | Ask user to confirm the app is Electron-based |
+| CDP port | No | 1024–65535, not already in use | Default to 9222; if in use, suggest next free port |
+| Platform | Auto-detected | `darwin`, `linux`, `win32` | Use `uname` / `$OSTYPE` to detect; fail if unsupported |
+| Session name | No | Alphanumeric string | Default to app name |
+
+If the app name is ambiguous, run `ls /Applications | grep -i "<name>"` on macOS before attempting `open -a`.
+
 ## Core Workflow
 
 1. **Launch** the Electron app with remote debugging enabled
@@ -175,6 +197,44 @@ Or set it globally:
 ```bash
 AGENT_BROWSER_COLOR_SCHEME=dark agent-browser connect 9222
 ```
+
+## Edge Cases
+
+| Scenario | Symptom | Resolution |
+|----------|---------|------------|
+| App already running without CDP flag | `Connection refused` on connect | Quit app, relaunch with `--remote-debugging-port` |
+| Port already in use | `EADDRINUSE` or silent failure | `lsof -i :9222` to find conflict; use a different port |
+| App has no visible Electron window yet | Empty snapshot or no targets | `sleep 3` after launch; retry connect |
+| Multiple webviews (e.g. embedded browser inside app) | Wrong content in snapshot | `agent-browser tab` to list targets; switch to correct one |
+| App uses custom input components | `fill` has no effect | Use `agent-browser keyboard inserttext "text"` instead |
+| Non-Electron native app | CDP port never opens | Confirm with `lsof -i :9222` after launch; escalate to user |
+| App updates itself on launch | Port changes between sessions | Always re-run connect after app restart |
+| Dark mode bleeding from OS theme | UI renders incorrectly in screenshots | Set `--color-scheme dark` or `AGENT_BROWSER_COLOR_SCHEME=dark` |
+
+## Output Contract
+
+A successful automation session produces one or more of:
+
+- **Snapshot text** (`agent-browser snapshot -i`): structured list of interactive elements with `@eN` refs, one per line
+- **Screenshot file**: PNG at the specified path, confirmed by zero exit code
+- **Extracted text** (`agent-browser get text @eN`): raw string content of the element
+- **JSON state** (`agent-browser snapshot --json`): full accessibility tree as JSON written to stdout or file
+
+All commands exit `0` on success. Non-zero exit codes indicate failure (see Error Contract). Snapshot refs (`@eN`) are **session-scoped** — they reset after re-snapshot; never reuse a ref across snapshot calls.
+
+## Error Contract
+
+| Exit Code / Error | Meaning | Recovery |
+|-------------------|---------|----------|
+| `Connection refused` (exit 1) | App not running or CDP port not open | Relaunch app with `--remote-debugging-port=NNNN` |
+| `Timeout waiting for target` | App launched but webview not ready | Add `sleep 3` before connect; retry |
+| `No element found: @eN` | Stale ref after UI change | Re-snapshot and resolve new ref |
+| `EADDRINUSE` | Chosen port already bound | Pick a different port (9222–9230 range) |
+| `open: Application not found` (macOS) | App name mismatch | Run `ls /Applications | grep -i "<name>"` to confirm |
+| `Permission denied` | Agent-browser binary not executable | `chmod +x $(which agent-browser)` |
+| Non-zero exit, no message | Generic agent-browser failure | Re-run with `--debug` flag to surface CDP error details |
+
+On any unrecoverable error, report the exact command, exit code, and stderr to the user before stopping.
 
 ## Troubleshooting
 
