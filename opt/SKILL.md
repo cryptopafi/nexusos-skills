@@ -1,20 +1,53 @@
 ---
 name: opt
-description: "Optimize any prompt or text using the PromptForge pipeline. Classifies input, selects PE techniques, runs multi-phase optimization (SCOPE, Optimize, Structure, Score), and delivers the improved version. Use when the user says '/opt [text]', 'optimize this prompt', or wants to improve any prompt/instruction/system message."
+description: "Optimize any prompt or text using the latest available PromptForge pipeline. Classifies input, selects PE techniques, runs multi-phase optimization (SCOPE, Optimize, Structure, Score), and delivers the improved version. Use when the user says 'opt', '/opt [text]', '[$opt]', 'optimize this prompt', or wants to improve any prompt/instruction/system message."
 argument-hint: <prompt text to optimize>
+model: claude-opus-4-7
+forge_version: "4.0"
 ---
 
 # /opt — PromptForge Optimizer
 
-Optimize any prompt, instruction, or text block using the full PromptForge v3.7 pipeline with PE technique selection.
+Optimize any prompt, instruction, or text block using the full PromptForge v4.0 pipeline with PE technique selection.
+
+## Freshness Rule
+
+Before using this skill, resolve the newest/highest-capability local copy if multiple `opt` skills exist. Check these locations when available and follow the copy with the highest `forge_version`, then newest mtime, then richest explicit trigger/source-of-truth rules:
+- `~/.codex/skills/opt/SKILL.md`
+- `~/.agents/skills/opt/SKILL.md`
+- `~/.claude/projects/-Users-pafi/skills/opt/SKILL.md`
+- `~/.nexus/library/repos/nexusos-skills/opt/SKILL.md`
+
+If an explicit path is attached by Pafi, read it, but still compare against the newer NexusOS/Codex copies before delivering. State when a supplied copy is stale.
+
+## Source Of Truth
+
+Load these files when using this skill, unless they are already loaded in the current session:
+- `~/.nexus/procedures/PROMPTING.md`
+- `~/.claude/projects/-Users-pafi/memory/promptforge.md`
+- `~/.nexus/prompt-library/methodology/promptforge.md` if present
+- `~/.claude/projects/-Users-pafi/memory/feedback_never_skip_explicit_skill.md` if present
+- `~/.claude/projects/-Users-pafi/memory/rules/rules-hard.md` sections `PROMPT-H-002` and `OPT-ALWAYS` if present
+- `~/.claude/projects/-Users-pafi/memory/rules/rules-standard.md` section `COM-S-004` if present
+
+If a source file cannot be read, continue with the best available PromptForge behavior and state which reference was unavailable.
+
+## Trigger Behavior
+
+- Plain `opt`, `/opt`, `[$opt]`, or `optimize`: optimize only. Do not execute the optimized task.
+- `opt explain` or `/opt explain`: optimize only, plus scoring and applied techniques.
+- Explicit skill invocation wins over task interpretation. If the text looks like a work request, still optimize the request rather than doing the work.
+- For non-trivial prompts outside explicit `opt`, apply PromptForge silently when useful, but do not show scoring unless Pafi asks.
 
 ## When NOT to Use
 
-Do NOT invoke this skill when:
+Do NOT invoke this skill automatically when:
 - The user asks to *run* or *execute* a prompt (not optimize it) — just run it directly
 - The user wants code written or a task completed — this skill only improves prompts, it does not execute them
 - The input is a finished product being reviewed for correctness, not quality of wording
 - The user says "summarize this" or "explain this" — those are not optimization requests
+
+If Pafi explicitly invokes `opt`, `/opt`, `[$opt]`, or `optimize`, the explicit trigger overrides this section and the task is optimized, not executed.
 
 ## Arguments
 
@@ -38,6 +71,18 @@ Before running the pipeline, validate the input:
 
 If validation fails and cannot be resolved, stop and report the issue clearly — do not attempt optimization on invalid input.
 
+## Model Routing
+
+This skill is pinned to `claude-opus-4-7` (extended thinking enabled) per MODEL ROUTING and OPUS PLAN HARD rules. Prompt optimization is architecture-class reasoning — multi-phase pipeline, technique stacking, self-calibration on PRODUCTION runs require Opus-tier depth.
+
+**Stacking rule:** STANDARD = 1-2 techniques · COMPLEX = 3-4 (must combine reasoning + structure + verification families) · PRODUCTION = 4-6 (must include CRITIC or Cognitive Verifier).
+
+**Fallback when Opus 100M cap is exhausted:**
+- User invokes `/opt --model sonnet <text>` to force Sonnet for a single run.
+- Pipeline still completes end-to-end; expect score ceiling ~78/100 on COMPLEX and reduced calibration on PRODUCTION.
+- Cap status: `~/.claude/check-usage-v2.sh`.
+- Never silently downgrade — always emit `⚠ Sonnet fallback active — Opus cap reached` in Step 5 output.
+
 ## Execution
 
 Follow the PROMPTING master procedure (`~/.nexus/procedures/PROMPTING.md`).
@@ -55,7 +100,7 @@ Search Cortex for existing high-scoring variants before crafting:
 ```
 cortex_search(query="<prompt summary>", collection="procedures", limit=3)
 ```
-- Score ≥ 0.7 → use as base, skip to technique selection
+- Score ≥ 0.8 → use as base, skip to technique selection (recency check: reject if > 30 days old)
 - Score ≥ 0.5 → use as starting point
 - Score < 0.5 → build from scratch
 
@@ -71,22 +116,30 @@ Select techniques from the Pas 3 decision tree based on task type:
 ### Step 4: PromptForge Pipeline
 Run the selected phases:
 
-| Phase | Action |
-|-------|--------|
-| -1 | Intent Extraction (if COMPLEX) |
-| 0 | Step-Back abstraction (if ambiguous) |
-| 1 | SCOPE: ask up to 5 clarifying questions (or infer from context) |
-| 2 | Optimize: apply selected techniques |
-| 3 | Structure: XML tags for Claude, markdown for others |
-| 4 | Score: 5 dimensions (Claritate, Completitudine, Corectitudine, Focalizare, Adecvare agent) × 0-20 = /100 |
-| 5 | Meta-Prompting: if score < 70, re-optimize weakest dimension (max 2 iterations). Score ≥ 70 → proceed to delivery |
-| 6 | Cortex Save: persist session to Cortex (PRODUCTION class only — includes C-072 Self-Calibration + C-073 Consistency Check) |
+| Phase | Action | WHY |
+|-------|--------|-----|
+| -1 | Intent Extraction (if COMPLEX) | Surfaces hidden goals before committing to approach |
+| 0 | Step-Back abstraction (if ambiguous) | Reframes the problem to avoid local optima |
+| 1 | SCOPE: ask up to 5 clarifying questions (or infer from context) | Resolves ambiguity before optimization wastes effort |
+| 2 | Optimize: apply selected techniques | Core transformation |
+| 3 | Structure: XML tags for Claude, markdown for others | Maximizes parser/model compatibility |
+| 4 | Score: 5 dimensions × 0-20 = /100 | Forces explicit quality evidence before delivery |
+| 5 | Meta-Prompting: if score < 85 (STANDARD/COMPLEX) or < 90 (PRODUCTION), re-optimize weakest dimension (max 3 iterations). WHY: floor 70 ships B-grade prompts. | Catches sub-threshold output before it ships |
+| 6 | Cortex Save (PRODUCTION only) | Persists high-quality patterns for reuse |
+
+### Pre-Deliver Checklist (P15 Verify-Before-Deliver)
+Before emitting output, confirm:
+- [ ] Classification justified with evidence from input (not assumed)
+- [ ] Techniques mapped to specific weaknesses identified in the prompt
+- [ ] All 5 dimensions scored with explicit evidence, not assertion
+- [ ] Optimized prompt does not exceed 2× input length unless COMPLEX/PRODUCTION
+- [ ] No technique stuffing — max 3 new techniques per run for STANDARD
 
 ### Step 5: Deliver
 
 Output format:
 ```
-🔧 PromptForge v3.7 | Class: {CLASS} | Techniques: {list}
+🔧 PromptForge v4.0 | Class: {CLASS} | Techniques: {list}
 
 ## Optimized Prompt
 
@@ -101,10 +154,42 @@ Output format:
 
 ## Techniques Applied
 {brief explanation of each technique and why it was chosen}
+
+## Key Changes (before → after)
+- {3-5 bullets: what changed and why it improves the prompt}
 ```
 
 ### Step 6: Cortex Save (PRODUCTION class only)
 Save the optimization session to Cortex (collection: `procedures`, type: `promptforge-pattern`) with score, techniques, and task type metadata. Skip this step for STANDARD and COMPLEX classes unless explicitly requested.
+
+## Worked Example (P55 Show-Don't-Tell)
+
+**Input (raw):** "Write email to client about project delay"
+
+**Classification:** STANDARD (single task, clear intent, <10 words)
+
+**Techniques selected:** C-042 Persona + C-053 Outline Expansion
+
+**Optimized output:**
+```
+You are a senior account manager writing a client-facing delay notification.
+
+Context: [Project name], originally due [date], will now deliver by [new date].
+Reason: [1-sentence cause].
+
+Email structure:
+1. Acknowledge the delay directly (no hedging)
+2. State revised timeline and next milestone
+3. Offer one concrete mitigation action
+4. Close with confidence, not apology
+
+Tone: professional, direct, not defensive. Under 150 words.
+```
+
+**Score:** 81/100 (Claritate 17 · Completitudine 16 · Corectitudine 17 · Focalizare 16 · Adecvare 15)
+
+**Bad output (P23 — what NOT to do):**
+Rewriting the user's task as a finished email — that executes the prompt, it does not optimize it.
 
 ## Edge Cases
 
