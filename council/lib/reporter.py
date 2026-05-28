@@ -149,7 +149,6 @@ def render_html_report(
         advisor_rows=_advisor_rows(advisors),
         nplf_rows=_nplf_rows(nplf),
         narrative=_markdown_to_html(reporter_input["report_markdown"]),
-        raw_json=_esc(json.dumps(_public_raw_payload(reporter_input, advisors, reconciler), indent=2, ensure_ascii=False)[:20000]),
     )
 
 
@@ -256,12 +255,7 @@ def _build_report_markdown(
         "",
         "## Scoring",
         _score_markdown(reconciler, cost),
-        "",
-        "## Source Brief",
-        brief_xml.strip() or "No brief provided.",
     ]
-    if debate:
-        parts.extend(["", "## Debate Revision", json.dumps(_clean_public(debate), indent=2, ensure_ascii=False)])
     return "\n".join(parts).strip() + "\n"
 
 
@@ -608,7 +602,6 @@ a {{ color:var(--blue); text-decoration:none; }}
     <article class="card"><h2>Advisor Matrix</h2><div class="table-wrap"><table><thead><tr><th>Advisor</th><th>Position</th><th>Confidence</th><th>Agrees On</th><th>Disagrees / Warns On</th></tr></thead><tbody>{advisor_rows}</tbody></table></div></article>
   </section>
   <section class="card narrative"><h2>Decision Trace</h2>{narrative}</section>
-  <details class="card narrative"><summary>Public structured artifact</summary><pre><code>{raw_json}</code></pre></details>
 </main>
 </body>
 </html>

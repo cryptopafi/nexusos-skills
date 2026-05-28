@@ -185,13 +185,17 @@ The HTML report includes the explanatory surfaces Pafi requested:
 - where each advisor agrees
 - where each advisor disagrees or warns
 - final synthesis / decision trace
-- public structured artifact for auditability
 
 Reporter output must be easy to follow visually, not just a markdown dump. At
 minimum, it should include metric cards, score bars, advisor rationale cards,
 tables, and a synthesis trace. Long narrative sections may remain available for
 auditability, but the first screen after the hero must make the committee shape
 and advisor motivations clear without requiring the reader to inspect raw JSON.
+Normalized XML briefs, debate JSON, and structured audit payloads must not be
+rendered inline in the readable HTML report. They remain available as separate
+workspace files (`brief.md`, `debate.json`, `reporter-input.json`,
+`reporter-output.json`) for auditability, but the public page must read like a
+decision report, not a code or JSON dump.
 
 When deployment is enabled, the report is published to GitHub Pages and the
 ledger result includes `html_report_url`.
