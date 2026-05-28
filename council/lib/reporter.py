@@ -262,7 +262,7 @@ def _build_report_markdown(
 def _advisor_markdown(advisors: list[dict]) -> str:
     lines = []
     for idx, advisor in enumerate(advisors, start=1):
-        label = advisor.get("label") or f"Advisor {idx}"
+        label = _advisor_display_label(advisor, idx)
         recommendation = advisor.get("recommendation") or advisor.get("verdict") or "n/a"
         confidence = advisor.get("confidence", "n/a")
         strengths = _list_text(advisor.get("top_strengths") or advisor.get("strengths"))
@@ -338,7 +338,7 @@ def _advisor_rows(advisors: list[dict]) -> str:
         return "<tr><td colspan='5'>No advisor rows available.</td></tr>"
     rows = []
     for idx, advisor in enumerate(advisors, start=1):
-        label = advisor.get("label") or f"Advisor {idx}"
+        label = _advisor_display_label(advisor, idx)
         recommendation = advisor.get("recommendation") or advisor.get("verdict") or "n/a"
         confidence = advisor.get("confidence", "n/a")
         agrees = _list_text(advisor.get("top_strengths") or advisor.get("strengths"))
@@ -393,7 +393,7 @@ def _advisor_cards(advisors: list[dict]) -> str:
         return "<p class='muted'>No advisor rationale cards available.</p>"
     cards = []
     for idx, advisor in enumerate(advisors, start=1):
-        label = advisor.get("label") or f"Advisor {idx}"
+        label = _advisor_display_label(advisor, idx)
         verdict = str(advisor.get("recommendation") or advisor.get("verdict") or "n/a").upper()
         confidence = advisor.get("confidence", "n/a")
         strengths = advisor.get("top_strengths") or advisor.get("strengths") or []
@@ -402,7 +402,7 @@ def _advisor_cards(advisors: list[dict]) -> str:
         objection = _first_list_item(risks) or "No public objection recorded."
         cards.append(
             f"<article class='advisor-card vote-{_verdict_class(verdict)}'>"
-            f"<div class='advisor-head'><span>Advisor {_esc(label)}</span>"
+            f"<div class='advisor-head'><span>{_esc(label)}</span>"
             f"<b>{_esc(verdict)}</b></div>"
             f"<div class='confidence'><span>Confidence</span><strong>{_esc(confidence)}</strong></div>"
             f"<h3>Why this advisor voted this way</h3><p>{_esc(motivation)}</p>"
@@ -410,6 +410,16 @@ def _advisor_cards(advisors: list[dict]) -> str:
             f"</article>"
         )
     return "<section class='advisor-cards'>" + "\n".join(cards) + "</section>"
+
+
+def _advisor_display_label(advisor: dict, idx: int) -> str:
+    raw = advisor.get("label") or advisor.get("letter") or str(idx)
+    label = str(raw).strip() or str(idx)
+    if label.lower().startswith("advisor "):
+        return label
+    if re.fullmatch(r"[A-Za-z]", label):
+        return f"Advisor {label.upper()}"
+    return f"Advisor {label}"
 
 
 def _nplf_rows(nplf: dict[str, float]) -> str:
