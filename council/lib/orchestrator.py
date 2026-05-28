@@ -293,7 +293,10 @@ def run_council(
                 f"normalize failed: {normalize_result.get('error', 'all providers exhausted')}"
             )
 
-        brief_xml: str = normalize_result.get("brief_xml", "")
+        brief_xml: str = _append_source_material(
+            normalize_result.get("brief_xml", ""),
+            target_text,
+        )
 
         cap_ok, cap_msg = meter.check_cap()
         if not cap_ok:
@@ -558,6 +561,25 @@ def _read_target(target: str | pathlib.Path) -> str:
     except (OSError, ValueError):
         pass
     return str(target)
+
+
+def _append_source_material(brief_xml: str, source_text: str, *, max_chars: int = 30000) -> str:
+    """
+    Append raw source material to the normalized brief so detail-heavy mandates
+    do not lose tables, share counts, terms, or required output sections.
+    """
+    brief = str(brief_xml or "").strip()
+    source = str(source_text or "").strip()
+    if not brief or not source or "<source_material>" in brief:
+        return brief
+    if len(source) > max_chars:
+        source = source[: max_chars - 120].rstrip() + "\n\n[TRUNCATED: source material exceeded prompt budget]"
+    source = source.replace("]]>", "]]]]><![CDATA[>")
+    source_block = f"\n  <source_material><![CDATA[\n{source}\n  ]]></source_material>"
+    closing = "</council_brief>"
+    if closing not in brief:
+        return brief + source_block
+    return brief.replace(closing, source_block + "\n" + closing, 1)
 
 
 def _build_advisor_list(

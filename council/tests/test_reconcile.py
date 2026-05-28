@@ -19,7 +19,9 @@ from lib.reconcile import (
     _validate_anonymized_input,
     _build_reconciler_prompt,
     _ensure_explainability_sections,
+    _ensure_advisor_vote_ledger,
     _validate_citations,
+    _ensure_tier_consistency,
     _compute_tier,
     _compute_nplf_arithmetic,
     _parse_reconciler_response,
@@ -119,6 +121,25 @@ def _make_opus_response(
         "text": json.dumps(payload),
         "tokens": {"in": 1000, "out": 800},
     }
+
+
+def test_ensure_advisor_vote_ledger_prepends_authoritative_mapping():
+    advisors = [
+        _make_anon_advisor("A", "BLOCK", 0.95, strengths=["A support"], risks=["A risk"]),
+        _make_anon_advisor("B", "ABSTAIN", 0.0),
+        _make_anon_advisor("C", "REVISE", 0.78, strengths=["C support"], risks=["C risk"]),
+    ]
+
+    result = _ensure_advisor_vote_ledger(
+        "## Summary\nResponse B says REVISE and Response C abstains.",
+        advisors,
+    )
+
+    assert result.startswith("## Advisor Vote Ledger")
+    assert "Response A: BLOCK, confidence 0.95" in result
+    assert "Response B: ABSTAIN, confidence 0.00" in result
+    assert "Response C: REVISE, confidence 0.78" in result
+    assert result.count("## Advisor Vote Ledger") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -514,6 +535,17 @@ class TestExplainabilitySections:
         assert "## Where Models Disagree" in result
         assert "## Unique Discoveries" in result
         assert "Response A: ## A. Verdict Reject current portfolio." in result
+
+    def test_ensure_tier_consistency_prepends_computed_tier_on_mismatch(self):
+        result = _ensure_tier_consistency(
+            "## Summary\nThe final verdict is REVISE.",
+            tier="BLOCK",
+            reconciler_verdict="REVISE",
+        )
+
+        assert result.startswith("## Final Council Tier\nComputed Council tier: BLOCK.")
+        assert "Reconciler raw verdict field: REVISE" in result
+        assert "## Summary" in result
 
     def test_reconcile_result_includes_explainability_sections(self, monkeypatch):
         monkeypatch.setattr(

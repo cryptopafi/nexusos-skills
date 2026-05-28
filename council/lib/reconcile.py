@@ -13,6 +13,7 @@ Internal helpers (also importable for testing)
   _validate_anonymized_input(anonymized) -> str | None
   _build_reconciler_prompt(brief_xml, anonymized) -> tuple[str, str]
   _ensure_explainability_sections(verdict_md, anonymized, agreement_zones, split_zones, tier) -> str
+  _ensure_advisor_vote_ledger(verdict_md, anonymized) -> str
   _validate_citations(verdict_md, tier) -> tuple[bool, list[str]]
   _compute_tier(opus_verdict, opus_confidence, anonymized, nplf_arithmetic) -> str
   _compute_nplf_arithmetic(anonymized, reconciler_nplf) -> dict
@@ -200,6 +201,43 @@ def _advisor_position_cards(anonymized: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def _advisor_vote_ledger(anonymized: list[dict]) -> str:
+    """Deterministic public vote ledger generated from structured advisor records."""
+    lines = ["## Advisor Vote Ledger"]
+    lines.append(
+        "This ledger is generated from structured advisor records and is authoritative "
+        "if any model-written narrative sentence labels an advisor differently."
+    )
+    for advisor in anonymized:
+        letter = _clean_inline(advisor.get("letter", "?"), max_len=8)
+        verdict = _clean_inline(advisor.get("verdict", "UNKNOWN"), max_len=32)
+        confidence = float(advisor.get("confidence", 0.0))
+        strengths = [_clean_inline(s) for s in advisor.get("top_strengths", [])[:1]]
+        risks = [_clean_inline(r) for r in advisor.get("top_risks", [])[:1]]
+        summary_bits = [f"Response {letter}: {verdict}, confidence {confidence:.2f}"]
+        if strengths:
+            summary_bits.append(f"support: {strengths[0]}")
+        if risks:
+            summary_bits.append(f"warning: {risks[0]}")
+        lines.append(f"- {'; '.join(summary_bits)}.")
+    return "\n".join(lines)
+
+
+def _ensure_advisor_vote_ledger(verdict_md: str, anonymized: list[dict]) -> str:
+    """Prepend a deterministic advisor vote ledger once per final verdict."""
+    if "## Advisor Vote Ledger" in verdict_md:
+        return verdict_md
+
+    ledger = _advisor_vote_ledger(anonymized)
+    if "## Summary" in verdict_md:
+        head, tail = verdict_md.split("## Summary", 1)
+        prefix = head.rstrip()
+        if prefix:
+            return prefix + "\n\n" + ledger + "\n\n## Summary" + tail
+        return ledger + "\n\n## Summary" + tail
+    return ledger + "\n\n" + verdict_md.lstrip()
+
+
 def _has_direct_answers(anonymized: list[dict]) -> bool:
     return any(str(advisor.get("direct_answer_md") or "").strip() for advisor in anonymized)
 
@@ -352,9 +390,26 @@ def _ensure_explainability_sections(
     if "## Final Synthesis Trace" not in verdict_md:
         sections.append(_final_synthesis_trace(anonymized, tier, nplf_arithmetic))
 
-    if not sections:
+    if sections:
+        verdict_md = verdict_md.rstrip() + "\n\n" + "\n\n".join(sections)
+    return _ensure_advisor_vote_ledger(verdict_md, anonymized)
+
+
+def _ensure_tier_consistency(verdict_md: str, *, tier: str, reconciler_verdict: str) -> str:
+    """
+    Make the computed Council tier unambiguous when deterministic tier gates
+    override the reconciler's raw PASS/REVISE/BLOCK prose.
+    """
+    if not verdict_md.strip() or tier == reconciler_verdict:
         return verdict_md
-    return verdict_md.rstrip() + "\n\n" + "\n\n".join(sections)
+    if "## Final Council Tier" in verdict_md:
+        return verdict_md
+    note = (
+        "## Final Council Tier\n"
+        f"Computed Council tier: {tier}. Reconciler raw verdict field: {reconciler_verdict}. "
+        "The computed tier controls when quorum, blocker, confidence, and NPLF gates override narrative wording.\n"
+    )
+    return note + "\n" + verdict_md.lstrip()
 
 
 # ---------------------------------------------------------------------------
@@ -1101,6 +1156,11 @@ def reconcile(
         split_zones,
         tier,
         nplf_arithmetic,
+    )
+    verdict_md = _ensure_tier_consistency(
+        verdict_md,
+        tier=tier,
+        reconciler_verdict=str(parsed.get("verdict", "UNKNOWN")),
     )
 
     cost_usd = total_tokens_in * price_in + total_tokens_out * price_out

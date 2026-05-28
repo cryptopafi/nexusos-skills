@@ -863,6 +863,24 @@ class TestOrchestratorWiring:
         assert required_keys.issubset(result.keys()), \
             f"Missing result keys: {required_keys - set(result.keys())}"
 
+    def test_source_material_appended_to_normalized_brief(self):
+        """Raw source details are preserved after normalization for advisors."""
+        from lib import orchestrator
+
+        source = "Portfolio A:\n- RKLB: 39,000 shares, current price 135.760"
+        brief = (
+            "<council_brief><goal>Audit portfolio.</goal><context></context>"
+            "<constraints></constraints><prior_art></prior_art>"
+            "<decision_points></decision_points><success_criteria></success_criteria>"
+            "<stakes></stakes></council_brief>"
+        )
+
+        enriched = orchestrator._append_source_material(brief, source)
+
+        assert "<source_material><![CDATA[" in enriched
+        assert "RKLB: 39,000 shares" in enriched
+        assert enriched.endswith("</council_brief>")
+
     def test_no_debate_for_standard_depth(self, monkeypatch):
         """Debate must not be called in standard mode (only deep)."""
         from lib import orchestrator
