@@ -78,6 +78,9 @@ A returned verdict is considered VALID only if **all** hold:
    was passed (enforced by AC-12 grep check at ledger writeback).
 6. `verdict.md` includes explainability sections: `Advisor Positions`,
    `Agreement Matrix`, `Disagreement Matrix`, and `Final Synthesis Trace`.
+7. Reporter-style HTML output is produced from AC-12-clean data: the ledger
+   writes `reporter-input.json`, `report.html`, and `reporter-output.json`,
+   and returns `html_report_url` when GitHub Pages publishing succeeds.
 
 If any criterion fails, the orchestrator surfaces the failure in the result
 dict and the tier defaults to the safer of `BLOCK` / `ABSTAIN`.
@@ -142,6 +145,43 @@ Optional environment overrides:
   daily spend state.
 - `COUNCIL_CORTEX_URL=<url>` — override Cortex writeback endpoint.
 - `COUNCIL_VPS2_SECRETS=<file>` — optional Telegram sink secret file.
+- `COUNCIL_REPORTER_ENABLED=0|1` — enable or disable shared-reporter HTML
+  artifact generation. Defaults to enabled.
+- `COUNCIL_REPORTER_DEPLOY=0|1` — enable or disable GitHub Pages deployment.
+  Defaults to enabled when the reports repo is available.
+- `COUNCIL_REPORTS_REPO=<path>` — override the GitHub Pages reports repo.
+  Defaults to `/Users/pafi/Claude/repos/nexusos-reports`.
+- `COUNCIL_REPORTER_SKILL=<path>` — override the imported shared-reporter
+  `SKILL.md` path. Defaults to the active `shared-reporter` skill roots.
+
+## Reporter-Style HTML Output
+
+After local files pass the AC-12 privacy grep, `/council` invokes the imported
+`shared-reporter` contract for external report output. The reporter payload is
+built only from stripped advisor records, the reconciler verdict, dissent, NPLF
+scores, cost metadata, and the public brief. Raw `reasoning_chain` content is
+never passed to the reporter adapter.
+
+Each successful ledger write produces these workspace artifacts:
+
+| File | Purpose |
+|------|---------|
+| `reporter-input.json` | Shared-reporter `ReporterInput` contract payload |
+| `report.html` | Local rich HTML report |
+| `reporter-output.json` | Shared-reporter `ReporterOutput` result payload |
+
+The HTML report includes the explanatory surfaces Pafi requested:
+
+- verdict summary and confidence/cost metrics
+- NPLF scorecard
+- per-advisor position table
+- where each advisor agrees
+- where each advisor disagrees or warns
+- final synthesis / decision trace
+- public structured artifact for auditability
+
+When deployment is enabled, the report is published to GitHub Pages and the
+ledger result includes `html_report_url`.
 
 ## Procedure
 
@@ -154,7 +194,10 @@ Invoking `/council <target> [options]` runs the following flow:
    anonymize → reconcile → optional debate → ledger writeback.
 3. Result object printed to stdout as a one-line summary:
    `<tier> conf=<float> cost=$<float> verdict=~/.nexus/workspace/council/<id>/verdict.md`
-4. Full verdict path returned to Pafi / calling agent via VK marker.
+4. Ledger writeback emits local Markdown/JSON artifacts, reporter-style HTML
+   artifacts, Cortex/Notion/Telegram sinks, and the optional GitHub Pages
+   `html_report_url`.
+5. Full verdict path returned to Pafi / calling agent via VK marker.
 
 For design rationale, see:
 - `~/.nexus/workspace/plans/advisor-council-2026-05-19.md` (v0.4, NPLF 3.775)
