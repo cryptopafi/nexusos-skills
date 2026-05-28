@@ -38,6 +38,7 @@ def _make_advisor(
     strengths: list[str] | None = None,
     risks: list[str] | None = None,
     blockers: list[str] | None = None,
+    direct_answer_md: str = "",
     include_reasoning: bool = True,
 ) -> dict:
     """Build a realistic full advisor result dict."""
@@ -51,6 +52,7 @@ def _make_advisor(
         "top_strengths": strengths if strengths is not None else ["Strength one.", "Strength two."],
         "top_risks": risks if risks is not None else ["Risk one.", "Risk two."],
         "critical_blockers": blockers if blockers is not None else ["Blocker one."],
+        "direct_answer_md": direct_answer_md,
         "reasoning_chain": "hidden chain text" if include_reasoning else None,
         "tokens": {"in": 1000, "out": 500},
         "cost_usd": 0.05,
@@ -94,11 +96,16 @@ class TestStrip5a:
             assert key not in result, f"Forbidden key {key!r} present in stripped output"
 
     def test_5a_keeps_allowed_keys(self):
-        """Strip preserves verdict, confidence, nplf, top_strengths, top_risks, critical_blockers by value."""
+        """Strip preserves verdict, confidence, NPLF, bullets, blockers, and public direct answer."""
         strengths = ["S1", "S2"]
         risks = ["R1"]
         blockers = ["B1", "B2"]
-        advisor = _make_advisor(strengths=strengths, risks=risks, blockers=blockers)
+        advisor = _make_advisor(
+            strengths=strengths,
+            risks=risks,
+            blockers=blockers,
+            direct_answer_md="## Direct answer\nDo the requested work.",
+        )
         result = _strip_5a(advisor)
         assert result["verdict"] == "PASS"
         assert result["confidence"] == pytest.approx(0.85)
@@ -106,6 +113,7 @@ class TestStrip5a:
         assert result["top_strengths"] == strengths
         assert result["top_risks"] == risks
         assert result["critical_blockers"] == blockers
+        assert result["direct_answer_md"].startswith("## Direct answer")
 
     def test_5a_rejects_missing_required(self):
         """Dict missing top_strengths -> ValueError."""

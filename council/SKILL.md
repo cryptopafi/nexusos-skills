@@ -46,6 +46,24 @@ Plan/Patch/Lint/Fix quality scoring) scores artifact quality → `/council`
 judges strategic merit → TECH (NexusOS dev sub-agent cluster: BUILDER, FIXER,
 INTEGRATOR, PIPELINER) dispatches.
 
+## Direct-Answer Mode
+
+When the target is itself an analytical request, `/council` must answer that
+request. It must not grade the prompt as an artifact unless Pafi explicitly asks
+for prompt optimization or prompt-quality audit. Examples:
+
+- Investment, market, strategy, or portfolio prompts with required sections:
+  advisors produce the requested report in `direct_answer_md`; the reconciler
+  synthesizes those reports into `verdict.md`.
+- Business decisions, build plans, or procedures: advisors may produce a shorter
+  direct audit memo plus their PASS/REVISE/BLOCK verdict.
+
+The final report should include the requested deliverables first, followed by
+Perplexity-style explainability: where advisors agree, where they disagree,
+unique discoveries, each advisor's motivation, and the final synthesis trace.
+For financial/current-data tasks, the report must separate verified facts from
+assumptions and label missing data instead of inventing it.
+
 **Acronyms used in this skill (first-use expansion):**
 - **NPLF** — NexusOS Plan/Patch/Lint/Fix scoring rubric (see `/audit-pro`)
 - **VK** — Verdict Key marker (stdout stream protocol for pipeline observability)
@@ -84,6 +102,8 @@ A returned verdict is considered VALID only if **all** hold:
 8. The HTML report exposes each advisor's visible decision logic: vote,
    confidence, motivation, main objection, agreement/disagreement zones, and
    the reconciler's explanation for accepting or rejecting that advisor's view.
+9. For direct-answer mandates, `verdict.md` and the HTML report include a
+   substantive synthesized answer, not only Council approval status.
 
 If any criterion fails, the orchestrator surfaces the failure in the result
 dict and the tier defaults to the safer of `BLOCK` / `ABSTAIN`.
@@ -185,6 +205,8 @@ The HTML report includes the explanatory surfaces Pafi requested:
 - where each advisor agrees
 - where each advisor disagrees or warns
 - final synthesis / decision trace
+- direct-answer synthesis when advisors supplied `direct_answer_md`
+- model-agreement, model-disagreement, and unique-discovery sections
 
 Reporter output must be easy to follow visually, not just a markdown dump. At
 minimum, it should include metric cards, score bars, advisor rationale cards,

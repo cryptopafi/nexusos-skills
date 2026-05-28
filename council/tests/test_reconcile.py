@@ -41,6 +41,7 @@ def _make_anon_advisor(
     strengths: list[str] | None = None,
     risks: list[str] | None = None,
     blockers: list[str] | None = None,
+    direct_answer_md: str = "",
 ) -> dict:
     """Build a valid anonymized advisor dict (post-5a/5b/5c, no forbidden keys)."""
     return {
@@ -51,6 +52,7 @@ def _make_anon_advisor(
         "top_strengths": strengths or ["Strength alpha.", "Strength beta.", "Strength gamma."],
         "top_risks": risks or ["Risk alpha.", "Risk beta.", "Risk gamma."],
         "critical_blockers": blockers or [],
+        "direct_answer_md": direct_answer_md,
     }
 
 
@@ -146,6 +148,19 @@ class TestInputValidation:
         advisors = [_make_anon_advisor("A"), _make_anon_advisor("B"), _make_anon_advisor("C")]
         with pytest.raises(ValueError, match="brief_xml"):
             reconcile(advisors, task_id="t3", brief_xml="", shuffle_map=_SHUFFLE_MAP)
+
+    def test_reconciler_prompt_includes_direct_answer_md(self):
+        """Public direct answers must reach the reconciler for substantive synthesis."""
+        advisors = [
+            _make_anon_advisor("A", direct_answer_md="## A. Executive verdict\nExit large-cap dead weight."),
+            _make_anon_advisor("B", direct_answer_md="## A. Executive verdict\nKeep only convex public venture names."),
+            _make_anon_advisor("C", direct_answer_md="## A. Executive verdict\nStructured notes should not cap upside."),
+        ]
+        _, user_prompt = _build_reconciler_prompt(_BRIEF_XML, advisors)
+
+        assert "direct_answer_md:" in user_prompt
+        assert "Exit large-cap dead weight" in user_prompt
+        assert "Structured notes should not cap upside" in user_prompt
 
 
 # ---------------------------------------------------------------------------
@@ -476,6 +491,29 @@ class TestExplainabilitySections:
         assert result.count("## Agreement Matrix") == 1
         assert result.count("## Disagreement Matrix") == 1
         assert result.count("## Final Synthesis Trace") == 1
+
+    def test_ensure_explainability_adds_direct_answer_sections(self):
+        advisors = [
+            _make_anon_advisor("A", direct_answer_md="## A. Verdict\nReject current portfolio."),
+            _make_anon_advisor("B", direct_answer_md="## A. Verdict\nRevise portfolio and add IPO reserve."),
+            _make_anon_advisor("C", direct_answer_md="## A. Verdict\nAvoid capped structured products."),
+        ]
+        result = _ensure_explainability_sections(
+            ALIGNED_VERDICT_MD,
+            advisors,
+            [{"claim": "Current portfolio is not enough for 100x", "cited_letters": ["A", "B", "C"]}],
+            [{"topic": "Structured products", "sides": [
+                {"position": "Use uncapped participation", "letters": ["B"]},
+                {"position": "Avoid most bank notes", "letters": ["C"]},
+            ]}],
+            "SPLIT",
+        )
+
+        assert "## Substantive Answer" in result
+        assert "## Where Models Agree" in result
+        assert "## Where Models Disagree" in result
+        assert "## Unique Discoveries" in result
+        assert "Response A: ## A. Verdict Reject current portfolio." in result
 
     def test_reconcile_result_includes_explainability_sections(self, monkeypatch):
         monkeypatch.setattr(

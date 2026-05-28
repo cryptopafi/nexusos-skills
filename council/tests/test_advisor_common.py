@@ -6,6 +6,7 @@ All tests use monkeypatch on lib._providers.call_provider. No live API calls.
 
 from __future__ import annotations
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -95,6 +96,29 @@ class TestAdvisorCommon:
         assert result["error"] is None
         assert result["advisor"] == "gemini-3.1-pro"
         assert result["label"] == "A"
+        assert result["direct_answer_md"] == ""
+
+    def test_case1b_direct_answer_md_survives_public_channel(self, monkeypatch: pytest.MonkeyPatch):
+        """Advisor direct_answer_md is parsed and returned separately from private reasoning_chain."""
+        payload = {
+            "verdict": "REVISE",
+            "confidence": 0.74,
+            "nplf": {"n": 3.0, "p": 2.8, "l": 3.4, "f": 2.6},
+            "top_strengths": ["answers mandate", "cites assumptions", "gives actions"],
+            "top_risks": ["missing data", "market risk", "execution risk"],
+            "critical_blockers": [],
+            "direct_answer_md": "## A. Executive verdict\nReject current portfolio; rebuild around smaller convex names.",
+            "reasoning_chain": "Private reasoning here.",
+        }
+
+        def _mock_call(provider, system, user, **kwargs):
+            return _make_response(json.dumps(payload))
+
+        result = _run(monkeypatch, _mock_call)
+
+        assert result["status"] == "OK"
+        assert result["direct_answer_md"].startswith("## A. Executive verdict")
+        assert result["reasoning_chain"] == "Private reasoning here."
 
     def test_case2_schema_fail_then_retry_success(self, monkeypatch: pytest.MonkeyPatch):
         """Case 2: first call returns 'not json', second call returns valid JSON -> status=OK, call_count=2."""

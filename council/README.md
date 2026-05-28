@@ -21,6 +21,12 @@ advisor's public position, an agreement matrix, a disagreement matrix, and a
 short synthesis trace explaining how the visible advisor positions led to the
 final tier.
 
+For analytical mandates, `/council` now uses a direct-answer path. Each advisor
+places its public substantive report in `direct_answer_md`; the reconciler then
+synthesizes the actual answer before the committee explainability sections. This
+prevents long analytical prompts from being reduced to "prompt approved/revise"
+meta-verdicts.
+
 `/council` is NOT a code auditor. For code and artifact quality scoring, use
 `/audit-pro`.
 
@@ -31,6 +37,7 @@ final tier.
 | Code file / artifact (correctness, style review) | `/audit-pro` | Has definitive NPLF scoring |
 | Multi-file architecture plan (generation + review) | `ralplan` (then `/council` if high-stake) | Plan generation + structural audit |
 | Idea / business proposal / strategic decision | **`/council`** | Judgment under uncertainty |
+| Investment/market/strategy analysis with required report sections | **`/council`** | Direct-answer synthesis plus advisor dissent |
 | Trivial or easily reversible (single-file rename) | Direct execution, no council | Council is overkill; triage gate will refuse |
 
 Canonical high-stake chain: `ralplan` generates plan → `/audit-pro` scores
@@ -112,6 +119,10 @@ Each invocation writes to `~/.nexus/workspace/council/<task-id>/`:
 - `cost.json` — full cost ledger by step
 - `debate.json` — only written if `--depth deep` was used
 
+For direct-answer mandates, `verdict.md` also includes the synthesized answer
+and Perplexity-style sections: `Substantive Answer`, `Where Models Agree`,
+`Where Models Disagree`, and `Unique Discoveries`.
+
 ## Privacy Contract
 
 - Default mode: NO `reasoning_chain` is written anywhere on disk after invocation completes.
@@ -119,7 +130,8 @@ Each invocation writes to `~/.nexus/workspace/council/<task-id>/`:
 - Cortex and Notion writebacks ALWAYS strip chains regardless of `--keep-chains`.
 - AC-12 test verifies default behavior: `find ~/.nexus/workspace/council -exec grep -l reasoning_chain {} \;` must return empty in a default run.
 - Explainability sections are built from public advisor fields only: verdict,
-  confidence, strengths, risks, blockers, agreement zones, and split zones.
+  confidence, strengths, risks, blockers, `direct_answer_md`, agreement zones,
+  and split zones.
 
 ## Six Tiers Explained
 

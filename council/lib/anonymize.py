@@ -46,6 +46,7 @@ _ALLOWED_OUTPUT_KEYS: frozenset[str] = frozenset({
     "top_strengths",
     "top_risks",
     "critical_blockers",
+    "direct_answer_md",
     "letter",
 })
 
@@ -133,8 +134,9 @@ def _strip_5a(advisor_dict: dict) -> dict:
     Remove all identity-leaking keys from an advisor result dict.
 
     Validates that required input keys are present before stripping.
-    Returns a new dict containing only the 6 payload keys
-    (verdict/confidence/nplf/top_strengths/top_risks/critical_blockers).
+    Returns a new dict containing only the public payload keys
+    (verdict/confidence/nplf/top_strengths/top_risks/critical_blockers plus
+    optional direct_answer_md).
     The 'letter' key is NOT added here; that happens in 5c.
 
     Raises:
@@ -147,7 +149,9 @@ def _strip_5a(advisor_dict: dict) -> dict:
         )
 
     payload_keys = _ALLOWED_OUTPUT_KEYS - {"letter"}
-    return {k: advisor_dict[k] for k in payload_keys}
+    stripped = {k: advisor_dict[k] for k in payload_keys if k in advisor_dict}
+    stripped.setdefault("direct_answer_md", "")
+    return stripped
 
 
 # ---------------------------------------------------------------------------

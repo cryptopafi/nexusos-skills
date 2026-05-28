@@ -192,6 +192,7 @@ def run_advisor(
                 top_strengths=parsed.get("top_strengths", []),
                 top_risks=parsed.get("top_risks", []),
                 critical_blockers=parsed.get("critical_blockers", []),
+                direct_answer_md=parsed.get("direct_answer_md", ""),
                 reasoning_chain=parsed.get("reasoning_chain", ""),
                 status="OK",
                 tokens={"in": total_tokens_in, "out": total_tokens_out},
@@ -298,6 +299,15 @@ def _parse_advisor_response(text: str) -> dict[str, Any]:
     if not isinstance(data.get("critical_blockers"), list):
         raise ValueError("critical_blockers must be a list")
 
+    # Optional public answer channel. This is deliberately separate from the
+    # private reasoning_chain so the reconciler can synthesize substantive
+    # reports without exposing hidden chain-of-thought.
+    direct_answer = data.get("direct_answer_md")
+    if direct_answer is not None and not isinstance(direct_answer, str):
+        raise ValueError(
+            f"direct_answer_md must be a string when present, got {type(direct_answer).__name__}"
+        )
+
     return data
 
 
@@ -326,6 +336,7 @@ def _make_result(
     top_strengths: list[str] | None = None,
     top_risks: list[str] | None = None,
     critical_blockers: list[str] | None = None,
+    direct_answer_md: str = "",
     reasoning_chain: str = "",
     status: str = "ABSTAIN",
     error: str | None = None,
@@ -343,6 +354,7 @@ def _make_result(
         "top_strengths": top_strengths if top_strengths is not None else [],
         "top_risks": top_risks if top_risks is not None else [],
         "critical_blockers": critical_blockers if critical_blockers is not None else [],
+        "direct_answer_md": direct_answer_md,
         "reasoning_chain": reasoning_chain,
         "tokens": tokens if tokens is not None else {"in": 0, "out": 0},
         "cost_usd": cost_usd,

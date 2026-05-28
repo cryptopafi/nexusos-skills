@@ -135,6 +135,11 @@ def _build_reconciler_prompt(brief_xml: str, anonymized: list[dict]) -> tuple[st
             for b in blockers:
                 block_lines.append(f"  - {b}")
 
+        direct_answer = str(d.get("direct_answer_md") or "").strip()
+        if direct_answer:
+            block_lines.append("direct_answer_md:")
+            block_lines.append(_clip_multiline(direct_answer, max_chars=12000))
+
         block_lines.append("</response>")
         response_blocks.append("\n".join(block_lines))
 
@@ -142,11 +147,23 @@ def _build_reconciler_prompt(brief_xml: str, anonymized: list[dict]) -> tuple[st
     return system, user
 
 
+def _clip_multiline(text: str, *, max_chars: int) -> str:
+    """Keep long public advisor reports bounded while preserving markdown shape."""
+    cleaned = text.strip()
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return cleaned[: max_chars - 120].rstrip() + "\n\n[TRUNCATED: advisor direct_answer_md exceeded prompt budget]"
+
+
 # ---------------------------------------------------------------------------
 # Explainability sections
 # ---------------------------------------------------------------------------
 
 _EXPLAINABILITY_HEADERS = (
+    "## Substantive Answer",
+    "## Where Models Agree",
+    "## Where Models Disagree",
+    "## Unique Discoveries",
     "## Advisor Positions",
     "## Agreement Matrix",
     "## Disagreement Matrix",
@@ -180,6 +197,67 @@ def _advisor_position_cards(anonymized: list[dict]) -> str:
             lines.append(f"  - Main concern: {'; '.join(risks)}")
         if blockers:
             lines.append(f"  - Blocker: {'; '.join(blockers)}")
+    return "\n".join(lines)
+
+
+def _has_direct_answers(anonymized: list[dict]) -> bool:
+    return any(str(advisor.get("direct_answer_md") or "").strip() for advisor in anonymized)
+
+
+def _direct_answer_fallback_sections(
+    anonymized: list[dict],
+    agreement_zones: list[dict],
+    split_zones: list[dict],
+) -> str:
+    """Fallback Perplexity-style sections when the reconciler omitted them."""
+    cited_answers: list[str] = []
+    for advisor in anonymized:
+        answer = str(advisor.get("direct_answer_md") or "").strip()
+        if not answer:
+            continue
+        letter = _clean_inline(advisor.get("letter", "?"), max_len=8)
+        cited_answers.append(f"Response {letter}: {_clean_inline(answer, max_len=600)}")
+
+    lines = ["## Substantive Answer"]
+    if cited_answers:
+        lines.extend(f"- {item}" for item in cited_answers)
+    else:
+        lines.append("- No advisor supplied a direct_answer_md payload.")
+
+    lines.append("")
+    lines.append("## Where Models Agree")
+    if agreement_zones:
+        for zone in agreement_zones:
+            claim = _clean_inline(zone.get("claim", "Agreement zone"))
+            letters = ", ".join(
+                f"Response {_clean_inline(l, max_len=8)}"
+                for l in zone.get("cited_letters", [])
+            )
+            lines.append(f"- {claim} ({letters or 'uncited'}).")
+    else:
+        lines.append("- No explicit agreement zones were emitted by the reconciler.")
+
+    lines.append("")
+    lines.append("## Where Models Disagree")
+    if split_zones:
+        for zone in split_zones:
+            topic = _clean_inline(zone.get("topic", "Disagreement"))
+            sides: list[str] = []
+            for side in zone.get("sides", []):
+                letters = ", ".join(
+                    f"Response {_clean_inline(l, max_len=8)}"
+                    for l in side.get("letters", [])
+                )
+                position = _clean_inline(side.get("position", "Position"))
+                sides.append(f"{letters or 'uncited side'}: {position}")
+            lines.append(f"- {topic}: {' | '.join(sides)}")
+    else:
+        lines.append("- No material disagreement recorded; advisor positions are aligned or differences were not decision-driving.")
+
+    lines.append("")
+    lines.append("## Unique Discoveries")
+    lines.append("- Review each Response card for single-advisor discoveries; no separate unique-discovery list was emitted by the reconciler.")
+
     return "\n".join(lines)
 
 
@@ -258,6 +336,13 @@ def _ensure_explainability_sections(
     fallback keeps old or degraded reconciler responses explainable.
     """
     sections: list[str] = []
+    if _has_direct_answers(anonymized) and (
+        "## Substantive Answer" not in verdict_md
+        or "## Where Models Agree" not in verdict_md
+        or "## Where Models Disagree" not in verdict_md
+        or "## Unique Discoveries" not in verdict_md
+    ):
+        sections.append(_direct_answer_fallback_sections(anonymized, agreement_zones, split_zones))
     if "## Advisor Positions" not in verdict_md:
         sections.append(_advisor_position_cards(anonymized))
     if "## Agreement Matrix" not in verdict_md:
