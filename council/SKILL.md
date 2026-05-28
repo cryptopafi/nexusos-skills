@@ -81,6 +81,9 @@ A returned verdict is considered VALID only if **all** hold:
 7. Reporter-style HTML output is produced from AC-12-clean data: the ledger
    writes `reporter-input.json`, `report.html`, and `reporter-output.json`,
    and returns `html_report_url` when GitHub Pages publishing succeeds.
+8. The HTML report exposes each advisor's visible decision logic: vote,
+   confidence, motivation, main objection, agreement/disagreement zones, and
+   the reconciler's explanation for accepting or rejecting that advisor's view.
 
 If any criterion fails, the orchestrator surfaces the failure in the result
 dict and the tier defaults to the safer of `BLOCK` / `ABSTAIN`.
@@ -172,6 +175,10 @@ Each successful ledger write produces these workspace artifacts:
 
 The HTML report includes the explanatory surfaces Pafi requested:
 
+- executive metric cards
+- visual committee vote summary
+- decision-flow band from advisor votes to final synthesis
+- per-advisor rationale cards explaining why each advisor voted that way
 - verdict summary and confidence/cost metrics
 - NPLF scorecard
 - per-advisor position table
@@ -179,6 +186,12 @@ The HTML report includes the explanatory surfaces Pafi requested:
 - where each advisor disagrees or warns
 - final synthesis / decision trace
 - public structured artifact for auditability
+
+Reporter output must be easy to follow visually, not just a markdown dump. At
+minimum, it should include metric cards, score bars, advisor rationale cards,
+tables, and a synthesis trace. Long narrative sections may remain available for
+auditability, but the first screen after the hero must make the committee shape
+and advisor motivations clear without requiring the reader to inspect raw JSON.
 
 When deployment is enabled, the report is published to GitHub Pages and the
 ledger result includes `html_report_url`.

@@ -143,6 +143,9 @@ def render_html_report(
         nplf_avg=f"{nplf_avg:.2f}/4" if nplf_avg is not None else "n/a",
         cost=f"${cost:.4f}" if cost is not None else "n/a",
         task=_esc(str(reporter_input["metadata"].get("council_task_id", ""))),
+        vote_summary=_vote_summary(advisors, tier),
+        decision_flow=_decision_flow(advisors, tier),
+        advisor_cards=_advisor_cards(advisors),
         advisor_rows=_advisor_rows(advisors),
         nplf_rows=_nplf_rows(nplf),
         narrative=_markdown_to_html(reporter_input["report_markdown"]),
@@ -358,6 +361,63 @@ def _advisor_rows(advisors: list[dict]) -> str:
     return "\n".join(rows)
 
 
+def _vote_summary(advisors: list[dict], tier: str) -> str:
+    counts: dict[str, int] = {}
+    for advisor in advisors:
+        verdict = str(advisor.get("recommendation") or advisor.get("verdict") or "n/a").upper()
+        counts[verdict] = counts.get(verdict, 0) + 1
+    votes = " / ".join(f"{count} {verdict}" for verdict, count in sorted(counts.items()))
+    return (
+        f"<section class='decision-band'>"
+        f"<div><small>Committee Shape</small><strong>{_esc(votes or 'No advisor votes')}</strong>"
+        f"<span>Final reconciler tier: {_esc(tier)}</span></div>"
+        f"<div><small>How To Read</small><strong>Vote → Motivation → Objection → Synthesis</strong>"
+        f"<span>The report shows what each advisor believed, where they split, and why the final tier followed.</span></div>"
+        f"</section>"
+    )
+
+
+def _decision_flow(advisors: list[dict], tier: str) -> str:
+    votes = [str(a.get("recommendation") or a.get("verdict") or "n/a").upper() for a in advisors]
+    vote_text = " + ".join(votes) if votes else "No votes"
+    return (
+        "<section class='flow' aria-label='Decision flow'>"
+        "<div class='flow-step'><small>1</small><strong>Independent advisors</strong>"
+        f"<span>{_esc(vote_text)}</span></div>"
+        "<div class='flow-arrow'>→</div>"
+        "<div class='flow-step'><small>2</small><strong>Agreement / dissent map</strong>"
+        "<span>Shared claims and explicit objections are separated.</span></div>"
+        "<div class='flow-arrow'>→</div>"
+        "<div class='flow-step'><small>3</small><strong>Final synthesis</strong>"
+        f"<span>{_esc(tier)} after weighing public advisor positions.</span></div>"
+        "</section>"
+    )
+
+
+def _advisor_cards(advisors: list[dict]) -> str:
+    if not advisors:
+        return "<p class='muted'>No advisor rationale cards available.</p>"
+    cards = []
+    for idx, advisor in enumerate(advisors, start=1):
+        label = advisor.get("label") or f"Advisor {idx}"
+        verdict = str(advisor.get("recommendation") or advisor.get("verdict") or "n/a").upper()
+        confidence = advisor.get("confidence", "n/a")
+        strengths = advisor.get("top_strengths") or advisor.get("strengths") or []
+        risks = advisor.get("top_risks") or advisor.get("risks") or []
+        motivation = _first_list_item(strengths) or "No public motivation recorded."
+        objection = _first_list_item(risks) or "No public objection recorded."
+        cards.append(
+            f"<article class='advisor-card vote-{_verdict_class(verdict)}'>"
+            f"<div class='advisor-head'><span>Advisor {_esc(label)}</span>"
+            f"<b>{_esc(verdict)}</b></div>"
+            f"<div class='confidence'><span>Confidence</span><strong>{_esc(confidence)}</strong></div>"
+            f"<h3>Why this advisor voted this way</h3><p>{_esc(motivation)}</p>"
+            f"<h3>Main objection or warning</h3><p>{_esc(objection)}</p>"
+            f"</article>"
+        )
+    return "<section class='advisor-cards'>" + "\n".join(cards) + "</section>"
+
+
 def _nplf_rows(nplf: dict[str, float]) -> str:
     if not nplf:
         return "<p class='muted'>No NPLF score was present.</p>"
@@ -390,7 +450,7 @@ def _markdown_to_html(markdown: str) -> str:
             if not in_list:
                 out.append("<ul>")
                 in_list = True
-            out.append(f"<li>{_inline_md(re.sub(r'^\\s*[-*]\\s+', '', line))}</li>")
+            out.append("<li>" + _inline_md(re.sub(r"^\s*[-*]\s+", "", line)) + "</li>")
         elif line.strip():
             if in_list:
                 out.append("</ul>")
@@ -431,6 +491,22 @@ def _list_text(value: Any) -> str:
     return ""
 
 
+def _first_list_item(value: Any) -> str:
+    if isinstance(value, list):
+        for item in value:
+            if item:
+                return str(item)
+        return ""
+    if isinstance(value, str):
+        return value
+    return ""
+
+
+def _verdict_class(verdict: str) -> str:
+    clean = re.sub(r"[^a-z0-9]+", "-", verdict.lower()).strip("-")
+    return clean or "unknown"
+
+
 def _as_float(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
@@ -466,6 +542,27 @@ h1 {{ font-size:clamp(32px, 5vw, 58px); line-height:1.02; margin:0 0 14px; lette
 .metrics {{ grid-template-columns:repeat(5, minmax(0,1fr)); margin:22px 0; }}
 .two {{ grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr); align-items:start; }}
 .card {{ background:color-mix(in srgb, var(--panel) 92%, transparent); border:1px solid var(--line); border-radius:8px; padding:18px; box-shadow:0 16px 38px rgba(0,0,0,.25); }}
+.decision-band {{ display:grid; grid-template-columns:1fr 1.25fr; gap:16px; margin:0 0 16px; }}
+.decision-band div {{ border:1px solid var(--line); border-radius:8px; padding:16px 18px; background:linear-gradient(135deg, rgba(118,169,255,.14), rgba(27,27,27,.95)); }}
+.decision-band small,.flow-step small {{ color:var(--muted); text-transform:uppercase; letter-spacing:.08em; display:block; }}
+.decision-band strong {{ display:block; font-size:20px; margin:6px 0; }}
+.decision-band span,.flow-step span {{ color:var(--muted); }}
+.flow {{ display:grid; grid-template-columns:1fr 34px 1fr 34px 1fr; align-items:stretch; gap:10px; margin:0 0 16px; }}
+.flow-step {{ border:1px solid var(--line); border-radius:8px; padding:14px; background:var(--panel); }}
+.flow-step strong {{ display:block; margin:6px 0; font-size:16px; }}
+.flow-arrow {{ display:grid; place-items:center; color:var(--muted); font-size:22px; }}
+.advisor-cards {{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:16px; margin:0 0 16px; }}
+.advisor-card {{ border:1px solid var(--line); border-radius:8px; padding:16px; background:var(--panel); }}
+.advisor-card.vote-pass {{ border-top:4px solid var(--green); }}
+.advisor-card.vote-revise,.advisor-card.vote-split {{ border-top:4px solid var(--amber); }}
+.advisor-card.vote-block,.advisor-card.vote-abstain {{ border-top:4px solid var(--red); }}
+.advisor-head {{ display:flex; align-items:center; justify-content:space-between; gap:12px; }}
+.advisor-head span {{ color:var(--muted); text-transform:uppercase; letter-spacing:.08em; font-size:12px; }}
+.advisor-head b {{ border:1px solid var(--line); border-radius:999px; padding:4px 10px; background:#151515; }}
+.confidence {{ display:flex; justify-content:space-between; align-items:center; margin:12px 0 8px; padding:8px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }}
+.confidence span {{ color:var(--muted); }}
+.advisor-card h3 {{ font-size:13px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:14px 0 5px; }}
+.advisor-card p {{ margin:0; }}
 .metric small {{ color:var(--muted); text-transform:uppercase; letter-spacing:.08em; display:block; }}
 .metric strong {{ display:block; font-size:24px; margin:8px 0 2px; overflow-wrap:anywhere; }}
 .metric span {{ color:var(--muted); }}
@@ -489,6 +586,7 @@ pre {{ max-height:420px; overflow:auto; background:#090909; border:1px solid var
 summary {{ cursor:pointer; color:var(--muted); }}
 a {{ color:var(--blue); text-decoration:none; }}
 @media (max-width:880px) {{ .metrics,.two {{ grid-template-columns:1fr; }} .score {{ grid-template-columns:100px minmax(90px,1fr) 46px; }} }}
+@media (max-width:980px) {{ .decision-band,.advisor-cards,.flow {{ grid-template-columns:1fr; }} .flow-arrow {{ display:none; }} }}
 </style>
 </head>
 <body>
@@ -502,6 +600,9 @@ a {{ color:var(--blue); text-decoration:none; }}
     <article class="card metric"><small>Run Spend</small><strong>{cost}</strong><span>Cost</span></article>
     <article class="card metric"><small>Evidence</small><strong>3</strong><span>Advisors</span></article>
   </section>
+  {vote_summary}
+  {decision_flow}
+  {advisor_cards}
   <section class="grid two">
     <article class="card"><h2>NPLF Scorecard</h2>{nplf_rows}</article>
     <article class="card"><h2>Advisor Matrix</h2><div class="table-wrap"><table><thead><tr><th>Advisor</th><th>Position</th><th>Confidence</th><th>Agrees On</th><th>Disagrees / Warns On</th></tr></thead><tbody>{advisor_rows}</tbody></table></div></article>
