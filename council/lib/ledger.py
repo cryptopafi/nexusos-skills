@@ -316,6 +316,19 @@ def _strip_chains(advisor_results: list[dict]) -> list[dict]:
     return stripped
 
 
+def _strip_chains_recursive(value: Any) -> Any:
+    """Return a defensive copy with every reasoning_chain key removed."""
+    if isinstance(value, dict):
+        return {
+            key: _strip_chains_recursive(item)
+            for key, item in value.items()
+            if key != "reasoning_chain"
+        }
+    if isinstance(value, list):
+        return [_strip_chains_recursive(item) for item in value]
+    return copy.deepcopy(value)
+
+
 def _publish_html_report(**kwargs: Any) -> tuple[dict[str, Any] | None, str | None]:
     """Late import keeps ledger usable if reporter dependencies are unavailable."""
     from .reporter import publish_council_report
@@ -366,7 +379,7 @@ def _write_local_files(
     _dump_json(workspace_dir / "cost.json", cost_data)
 
     if debate_result is not None:
-        _dump_json(workspace_dir / "debate.json", debate_result)
+        _dump_json(workspace_dir / "debate.json", _strip_chains_recursive(debate_result))
 
     return written
 

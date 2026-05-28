@@ -368,6 +368,35 @@ def test_shared_reporter_output_runs_after_ac12(tmp_path, monkeypatch):
     assert result["reporter"]["agent"] == "shared-reporter"
 
 
+def test_debate_result_chains_are_stripped_before_disk(tmp_path, monkeypatch):
+    """Deep-mode debate payloads may contain revision chains; ledger strips them."""
+    monkeypatch.setattr(ledger_mod, "_COUNCIL_BASE", tmp_path)
+    monkeypatch.setattr(ledger_mod, "_write_cortex", lambda p, m: ("cid", None))
+    monkeypatch.setattr(ledger_mod, "_write_notion", lambda *a: ("https://notion.so/x", None))
+    monkeypatch.setattr(ledger_mod, "_send_telegram", lambda *a: (True, None))
+    debate = {
+        "run1": [
+            {
+                "label": "A",
+                "verdict": "PASS",
+                "reasoning_chain": "private debate chain that must not persist",
+            }
+        ],
+        "nested": {"reasoning_chain": "nested private debate chain"},
+    }
+
+    result = write_ledger(**{
+        **BASE_KWARGS,
+        "advisor_results": [ADVISOR_WITH_CHAIN.copy()] * 3,
+        "debate_result": debate,
+    })
+
+    debate_text = (pathlib.Path(result["workspace_dir"]) / "debate.json").read_text()
+    assert result["privacy_audit"]["ac12_grep_clean"] is True
+    assert "reasoning_chain" not in debate_text
+    assert "private debate chain" not in debate_text
+
+
 # ---------------------------------------------------------------------------
 # Cortex payload (2)
 # ---------------------------------------------------------------------------
