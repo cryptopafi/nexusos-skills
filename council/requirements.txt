@@ -1,0 +1,5 @@
+# System deps: Python >=3.11 plus codex, claude, and gemini CLIs.
+google-api-core>=2.0
+google-genai>=0.3
+google-generativeai>=0.8
+pytest>=8.0

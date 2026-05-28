@@ -1,0 +1,82 @@
+[
+  {
+    "brief": "Should I rename the variable `x` to `count` in line 42 of helper.py?",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Which font should I use for the slide title — Arial or Helvetica?",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Should the button label say 'Submit' or 'Send'?",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Fix the typo in the README: 'recieve' should be 'receive'.",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Should we increase the HTTP timeout from 30 to 60 seconds in the dev config?",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Move the logo 5 pixels to the left on the landing page.",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Add a comment to the `calculate_tax()` function explaining the formula.",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Should the error message say 'An error occurred' or 'Something went wrong'?",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Upgrade the lodash dependency from 4.17.20 to 4.17.21 (patch release, no breaking changes).",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Change the default pagination size from 10 to 20 items per page in the dev environment.",
+    "expected_decision": "REFUSE"
+  },
+  {
+    "brief": "Launch an EU SMS marketing campaign in Q4 2026 with a $50,000 budget targeting Romania and Bulgaria. Requires GDPR consent flows, MSA with Vox Telecom, and Board approval. Risk: regulatory non-compliance. Success metric: 15,000 trial sign-ups at CPA under $3.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Acquire TechEdge Labs for $2M. The company has declining ARR but owns a 7-patent NLP portfolio. Potential integration risk, $240K undisclosed vendor debt, and two patents under EPO opposition. Requires Board approval. Alternative: license-only at $200K/yr.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Migrate production database from PostgreSQL 13 to PostgreSQL 16 for a service handling 2M daily active users. Requires zero-downtime cutover plan, 3-week rollback window, and sign-off from CTO and VP Engineering. Estimated effort: 6 weeks.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Expand NexusOS into the US market in Q1 2027. Requires SOC 2 Type II certification, US entity incorporation, $1.2M budget, 3 new enterprise sales hires, and legal review of US data residency requirements under state privacy laws.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Terminate the contract with our primary cloud provider (AWS) and migrate all infrastructure to GCP. Estimated migration cost: $400K over 6 months. Risk: 72-hour service disruption window. Requires CISO sign-off, customer communication plan, and Board awareness.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Raise a $5M Series A round at a $25M pre-money valuation. Term sheet from lead investor Accel includes 1x liquidation preference, anti-dilution clause, and board seat. Secondary offer from Sequoia at $22M pre-money with no liquidation preference. Legal counsel review required.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Launch a white-label version of NexusOS for a single enterprise customer (XPeng, €25K contract) with custom branding and a data-isolation guarantee. Requires custom deployment pipeline, 6-month SLA at 99.9% uptime, and dedicated support tier. Risk: sets precedent for future white-label requests.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Promote the current VP of Engineering to CTO, dissolving the interim CTO role. This affects org structure for 40 engineers, requires compensation adjustment of $80K/yr, and changes reporting lines for 3 team leads. Board acknowledgement required.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Implement a mandatory 2-hour 'culture alignment' meeting every Friday for all 80 employees. This reduces billable hours by ~4K hrs/quarter and has been opposed by 60% of staff in the anonymous survey. Legal HR review needed for implications in RO labor law.",
+    "expected_decision": "PROCEED"
+  },
+  {
+    "brief": "Reduce engineering headcount by 20% (8 positions) due to budget constraints. Affected roles: 3 backend engineers, 2 QA, 2 data engineers, 1 DevOps. Severance budget: $120K. Romanian labor law requires 30-day notice and union consultation. Risk: morale impact on remaining team.",
+    "expected_decision": "PROCEED"
+  }
+]
