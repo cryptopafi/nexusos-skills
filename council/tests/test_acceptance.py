@@ -404,6 +404,33 @@ class TestAC5TwoAbstainYieldsAbstained:
         )
         assert result["status"] == "OK"
 
+    def test_transient_advisor_failure_retried_before_quorum(self, monkeypatch):
+        """Operational lane failures get one higher-depth retry before quorum."""
+        from lib import orchestrator
+
+        _apply_happy_path_mocks(monkeypatch)
+
+        calls: list[str] = []
+
+        def flaky_opus(*a, **kw):
+            calls.append(kw.get("depth", ""))
+            if len(calls) == 1:
+                failed = _make_abstain_advisor_result("B")
+                failed["error"] = "transient_exhausted: timed out"
+                return failed
+            return _make_advisor_result("REVISE", 0.82, "B")
+
+        monkeypatch.setattr("lib.advisor_opus.advise", flaky_opus)
+
+        result = orchestrator.run_council(
+            _SUBSTANTIVE_BRIEF,
+            depth="standard",
+            min_quorum=3,
+        )
+
+        assert result["status"] == "OK"
+        assert calls == ["standard", "deep"]
+
 
 # ---------------------------------------------------------------------------
 # AC-6: Named sections + citation enforcement

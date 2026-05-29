@@ -72,9 +72,12 @@ assumptions and label missing data instead of inventing it.
 
 ## Failure Modes & Retry Semantics
 
-- **Advisor timeout** (call exceeds tier latency budget): drop that advisor,
-  proceed if `--min-quorum` still satisfied; else exit with
-  `INSUFFICIENT_QUORUM` and no spend on the reconciler.
+- **Advisor timeout / transient lane failure** (call exceeds tier latency budget
+  or exhausts transient retries): announce the failed lane, retry that advisor
+  once at the next higher depth (`quick → standard`, `standard/deep → deep`),
+  then run quorum only on completed advisor outputs. A failed advisor is not
+  treated as a substantive council opinion. If quorum is still missing, exit
+  with `INSUFFICIENT_QUORUM` and no spend on the reconciler.
 - **Cost cap hit mid-run**: cancel pending advisor calls, reconcile with the
   partial set if quorum is met; verdict carries `cost_cap_breach=true`.
 - **Reconciler permanent failure**: one retry with 1s→2s exponential backoff,

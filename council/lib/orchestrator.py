@@ -628,14 +628,66 @@ def _build_advisor_list(
             else:
                 result = _make_abstain_placeholder(lane_name)
 
+        if _should_retry_failed_advisor(result):
+            if _raw_cost_usd(result) > 0.0:
+                meter.add_raw(cost_usd=_raw_cost_usd(result), step=lane_name, label=f"{lane_name}:failed_attempt")
+            retry_depth = _advisor_retry_depth(depth)
+            sys.stderr.write(
+                f"[orchestrator] advisor lane {lane_name} failed "
+                f"({result.get('error', result.get('status'))}); retrying once at depth={retry_depth}\n"
+            )
+            try:
+                result = advise_fn(brief_xml, task_id=council_task_id, depth=retry_depth)
+            except Exception as exc:
+                sys.stderr.write(
+                    f"[orchestrator] advisor lane {lane_name} retry raised "
+                    f"{type(exc).__name__}: {exc} — lane remains failed\n"
+                )
+                vk.emit(
+                    f"dispatch_{lane_letter}",
+                    "failed",
+                    council_task_id,
+                    error_class=type(exc).__name__,
+                )
+                result = _make_abstain_placeholder(lane_name)
+                result["status"] = "FAILED"
+                result["error"] = f"retry_failed: {type(exc).__name__}: {exc}"
+
         # Accumulate cost into meter.
-        raw_cost = float(result.get("cost_usd", 0.0))
+        raw_cost = _raw_cost_usd(result)
         if raw_cost > 0.0:
             meter.add_raw(cost_usd=raw_cost, step=lane_name, label=lane_name)
 
         results.append(result)
 
     return results
+
+
+def _raw_cost_usd(result: dict) -> float:
+    try:
+        return float(result.get("cost_usd", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _advisor_retry_depth(depth: str) -> str:
+    if depth == "quick":
+        return "standard"
+    return "deep"
+
+
+def _should_retry_failed_advisor(result: dict) -> bool:
+    """Operational advisor failures are announced and retried before quorum."""
+    status = str(result.get("status") or "").upper()
+    verdict = str(result.get("verdict") or "").upper()
+    error = str(result.get("error") or "").lower()
+    if status in {"UNAVAILABLE"}:
+        return False
+    if status in {"TIMEOUT", "FAILED", "FAIL_API", "SCHEMA_FAIL"}:
+        return True
+    if status == "ABSTAIN" and verdict == "ABSTAIN" and error:
+        return any(token in error for token in ("transient", "timeout", "timed out", "schema", "unavailable"))
+    return False
 
 
 def _handle_quorum(
