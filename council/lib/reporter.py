@@ -51,7 +51,7 @@ def publish_council_report(
             debate=debate_result,
             cost=cost_meter_total,
         )
-        title = _report_title(reconciler_result, council_task_id)
+        title = _report_title(reconciler_result, council_task_id, brief_xml)
         reporter_input = {
             "task": "publish",
             "report_type": "session",
@@ -203,7 +203,7 @@ def _update_index(repo: pathlib.Path) -> None:
     for path in reports:
         if path.name == "council-reports-index.html":
             continue
-        title = path.stem.replace("-", " ").title()
+        title = _extract_html_title(path) or path.stem.replace("-", " ").title()
         rows.append(
             f"<tr><td><a href='{_esc(path.name)}'>{_esc(title)}</a></td>"
             f"<td><code>{_esc(path.name)}</code></td></tr>"
@@ -472,9 +472,128 @@ def _inline_md(text: str) -> str:
     return text
 
 
-def _report_title(reconciler: dict, council_task_id: str) -> str:
+def _report_title(reconciler: dict, council_task_id: str, brief_xml: str = "") -> str:
     verdict = str(reconciler.get("tier", "Council")).replace("_", " ").title()
-    return f"{verdict} Council Report - {council_task_id}"
+    description = _descriptive_task_name(brief_xml, reconciler)
+    return f"{verdict}: {description} — {council_task_id}"
+
+
+def _extract_html_title(path: pathlib.Path) -> str | None:
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    match = re.search(r"<title>(.*?)</title>", text, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return None
+    title = html.unescape(re.sub(r"\s+", " ", match.group(1)).strip())
+    return title or None
+
+
+def _descriptive_task_name(brief_xml: str, reconciler: dict) -> str:
+    """
+    Create a readable task/report name from the brief. The opaque task id remains
+    metadata/suffix only; visible titles should stand on their own.
+    """
+    candidates = [
+        _extract_xmlish_tag(brief_xml, "goal"),
+        _extract_xmlish_tag(brief_xml, "question"),
+        _extract_xmlish_tag(brief_xml, "source_material"),
+        str(reconciler.get("verdict_md") or ""),
+    ]
+    for candidate in candidates:
+        title = _compact_title(candidate)
+        if title:
+            return title
+    return "Strategic Decision Council Audit"
+
+
+def _extract_xmlish_tag(text: str, tag: str) -> str:
+    pattern = rf"<{tag}\b[^>]*>(.*?)</{tag}>"
+    match = re.search(pattern, text or "", flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return ""
+    value = match.group(1)
+    value = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", value, flags=re.DOTALL)
+    value = re.sub(r"<[^>]+>", " ", value)
+    return html.unescape(value)
+
+
+def _compact_title(text: str) -> str:
+    clean = re.sub(r"^\s{0,3}#{1,6}\s*", "", str(text or ""), flags=re.MULTILINE)
+    clean = re.sub(r"\b(council_task_id|reasoning_chain|direct_answer_md)\b.*", "", clean, flags=re.IGNORECASE | re.DOTALL)
+    clean = re.sub(r"```.*?```", " ", clean, flags=re.DOTALL)
+    clean = re.sub(r"[/`*_#<>{}\\[\\]|\"]", " ", clean)
+    clean = re.sub(r"\s+", " ", clean).strip(" .:-")
+    if not clean:
+        return ""
+
+    special = _special_case_title(clean)
+    if special:
+        return special
+
+    cleanup_prefixes = (
+        r"^act as an independent ai model council composed of\s*",
+        r"^act as an independent council composed of\s*",
+        r"^your task is to\s*",
+        r"^obtain independent skeptical\s*",
+        r"^obtain independent\s*",
+        r"^decide whether to\s*",
+        r"^evaluate whether to\s*",
+        r"^review whether to\s*",
+        r"^audit and improve\s*",
+        r"^audit\s*",
+    )
+    lowered = clean.lower()
+    for prefix in cleanup_prefixes:
+        lowered = re.sub(prefix, "", lowered, flags=re.IGNORECASE)
+    clean = lowered.strip(" .:-")
+
+    stop = {
+        "a", "an", "and", "are", "as", "at", "be", "by", "do", "for", "from",
+        "if", "in", "into", "is", "it", "of", "on", "or", "the", "this", "to",
+        "with", "within", "your",
+    }
+    words = re.findall(r"[A-Za-z0-9][A-Za-z0-9+.$%-]*", clean)
+    meaningful = [w for w in words if w.lower() not in stop]
+    if not meaningful:
+        return ""
+
+    # Prefer 5-12 meaningful words. Keep existing acronyms readable.
+    selected = meaningful[:12]
+    if len(selected) < 5 and len(meaningful) >= len(selected):
+        selected = meaningful[: min(12, max(5, len(meaningful)))]
+    title = " ".join(_title_word(word) for word in selected)
+    if not re.search(r"\b(Council|Audit|Review|Strategy|Plan|Report)\b", title):
+        title = f"{title} Council Audit"
+    return title[:120].strip()
+
+
+def _special_case_title(text: str) -> str:
+    low = text.lower()
+    if "investment" in low and "strategy" in low and any(
+        token in low for token in ("high-risk", "100x", "$10m", "$1b", "public-market")
+    ):
+        return "High-Risk Investment Strategy Council Audit"
+    if "portfolio" in low and any(token in low for token in ("investment", "market", "alpha")):
+        return "Investment Portfolio Council Audit"
+    if "hermes" in low and "production" in low and "upgrade" in low:
+        return "Hermes Production Upgrade Council Review"
+    if "hermes" in low and "pilot" in low:
+        return "Hermes Pilot Gateway Council Review"
+    if "hermes" in low and "vox" in low:
+        return "Hermes VOX Gateway Council Review"
+    return ""
+
+
+def _title_word(word: str) -> str:
+    if len(word) <= 5 and re.fullmatch(r"[A-Z0-9+.$%-]+", word):
+        return word
+    if any(ch.isdigit() for ch in word) and word.upper() == word:
+        return word
+    if "-" in word:
+        return "-".join(_title_word(part) for part in word.split("-") if part)
+    return word[:1].upper() + word[1:].lower()
 
 
 def _first_sentence(text: str, limit: int = 260) -> str:
