@@ -7,6 +7,7 @@ metadata:
   reasoning_effort: high
   version: "1.0.7-portable-v1"
   advisor_models: "gemini-3.1-pro, opus-4-8, gpt-5.5"
+  fallback_advisor_models: "ollama-glm-5.2-cloud, deepseek-v4-pro"
   cost_cap_deep_usd: 18.00
   cost_cap_quick_usd: 2.00
   cost_cap_standard_usd: 6.00
@@ -29,12 +30,15 @@ Runtime-neutral council behavior: evaluate a decision target with multiple indep
 ## Purpose
 
 `/council` runs Gemini 3.1 Pro, Claude Opus 4.8, and GPT-5.5 as independent
-advisor lanes at
-max-reasoning intensity on the same brief, then Codex's native GPT-5.5 support
-model synthesizes a single decision while preserving dissent. Advisor models
-remain fixed; all non-advisor support work uses the Codex runtime. Designed for judgment-heavy
-targets where multi-perspective deliberation provides real signal over single-model
-analysis.
+advisor lanes at max-reasoning intensity on the same brief, then Codex's native
+GPT-5.5 support model synthesizes a single decision while preserving dissent.
+Advisor models remain fixed as first choice; if one primary advisor lane is
+unavailable, the orchestrator tries fallback advisors in deterministic order:
+Ollama Cloud GLM 5.2, then DeepSeek V4 Pro. Substituted lanes preserve the
+original failure in ledger-visible metadata and are marked as substitutes. All
+non-advisor support work uses the Codex runtime. Designed for judgment-heavy
+targets where multi-perspective deliberation provides real signal over
+single-model analysis.
 
 ## When to Use
 
@@ -75,9 +79,12 @@ assumptions and label missing data instead of inventing it.
 - **Advisor timeout / transient lane failure** (call exceeds tier latency budget
   or exhausts transient retries): announce the failed lane, retry that advisor
   once at the next higher depth (`quick → standard`, `standard/deep → deep`),
-  then run quorum only on completed advisor outputs. A failed advisor is not
-  treated as a substantive council opinion. If quorum is still missing, exit
-  with `INSUFFICIENT_QUORUM` and no spend on the reconciler.
+  then try fallback advisors in order: `ollama-glm-5.2-cloud`, then
+  `deepseek-v4-pro`. A failed primary advisor is not treated as a substantive
+  council opinion, but a successful substitute is counted toward quorum and
+  marked with `substitute_for`, `primary_failure`, and `fallback_provider`.
+  If quorum is still missing, exit with `INSUFFICIENT_QUORUM` and no spend on
+  the reconciler.
 - **Cost cap hit mid-run**: cancel pending advisor calls, reconcile with the
   partial set if quorum is met; verdict carries `cost_cap_breach=true`.
 - **Reconciler permanent failure**: one retry with 1s→2s exponential backoff,
@@ -179,6 +186,10 @@ Optional environment overrides:
   Defaults to `/Users/pafi/Claude/repos/nexusos-reports`.
 - `COUNCIL_REPORTER_SKILL=<path>` — override the imported shared-reporter
   `SKILL.md` path. Defaults to the active `shared-reporter` skill roots.
+- `OLLAMA_API_KEY` — enables the Ollama Cloud GLM 5.2 fallback advisor
+  (`ollama-glm-5.2-cloud`). `OLLAMA_BASE_URL` may override the API host.
+- `DEEPSEEK_API_KEY` — enables the DeepSeek V4 Pro fallback advisor
+  (`deepseek-v4-pro`). `DEEPSEEK_BASE_URL` may override the API host.
 
 ## Reporter-Style HTML Output
 

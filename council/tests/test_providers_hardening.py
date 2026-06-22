@@ -29,6 +29,8 @@ from lib._providers import (
     TransientProviderError,
     call_provider,
     _call_anthropic,
+    _call_deepseek,
+    _call_ollama,
     _call_openai,
     _call_google,
     _classify_google_error,
@@ -384,3 +386,126 @@ class TestGeminiCliTransientClassification:
 
         assert captured["kwargs"]["input"].startswith("# System Instructions")
         assert "--prompt" not in captured["args"][0]
+
+    def test_gemini_cli_429_capacity_is_transient_even_with_authorization_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        import pathlib as _pathlib
+        import shutil as _shutil
+        import subprocess as _subprocess
+
+        monkeypatch.setattr(_shutil, "which", lambda cmd: "/usr/bin/gemini" if cmd == "gemini" else None)
+        monkeypatch.setattr(_pathlib.Path, "exists", lambda self: True)
+        completed = _subprocess.CompletedProcess(
+            args=["gemini"],
+            returncode=1,
+            stdout="",
+            stderr="HTTP 429 MODEL_CAPACITY_EXHAUSTED Authorization: <<REDACTED>>",
+        )
+        monkeypatch.setattr(_subprocess, "run", lambda *a, **kw: completed)
+
+        with pytest.raises(TransientProviderError):
+            providers_mod._call_gemini_subprocess(
+                model="gemini-3.1-pro-preview",
+                system="sys",
+                user="usr",
+                timeout_s=5.0,
+            )
+
+
+class TestFallbackProviderAdapters:
+
+    def test_ollama_adapter_posts_native_chat_request(self, monkeypatch: pytest.MonkeyPatch):
+        captured: dict = {}
+
+        def fake_post_json(**kwargs):
+            captured.update(kwargs)
+            return {
+                "message": {"content": '{"verdict":"PASS"}'},
+                "prompt_eval_count": 11,
+                "eval_count": 7,
+            }
+
+        monkeypatch.setenv("OLLAMA_API_KEY", "test-key")
+        monkeypatch.setattr(providers_mod, "_post_json", fake_post_json)
+
+        result = _call_ollama(
+            "ollama-glm-5.2-cloud",
+            "glm-5.2:cloud",
+            "sys",
+            "usr",
+            256,
+            0.2,
+            5.0,
+        )
+
+        assert result["text"] == '{"verdict":"PASS"}'
+        assert result["tokens"] == {"in": 11, "out": 7}
+        assert captured["payload"]["model"] == "glm-5.2:cloud"
+        assert captured["headers"]["Authorization"] == "Bearer test-key"
+        assert captured["url"].endswith("/api/chat")
+
+    def test_ollama_cloud_missing_key_is_permanent(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+        monkeypatch.delenv("OLLAMA_BASE_URL", raising=False)
+        monkeypatch.setattr(providers_mod, "_env_or_keychain", lambda service: None)
+
+        with pytest.raises(PermanentProviderError, match="OLLAMA_API_KEY"):
+            _call_ollama(
+                "ollama-glm-5.2-cloud",
+                "glm-5.2:cloud",
+                "sys",
+                "usr",
+                256,
+                0.2,
+                5.0,
+            )
+
+    def test_deepseek_adapter_posts_openai_compatible_request(self, monkeypatch: pytest.MonkeyPatch):
+        captured: dict = {}
+
+        def fake_post_json(**kwargs):
+            captured.update(kwargs)
+            return {
+                "choices": [{"message": {"content": '{"verdict":"REVISE"}'}}],
+                "usage": {"prompt_tokens": 13, "completion_tokens": 17},
+            }
+
+        monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+        monkeypatch.setattr(providers_mod, "_post_json", fake_post_json)
+
+        result = _call_deepseek(
+            "deepseek-v4-pro",
+            "deepseek-v4-pro",
+            "sys",
+            "usr",
+            256,
+            0.2,
+            5.0,
+            thinking={"type": "enabled", "effort": "high"},
+        )
+
+        assert result["text"] == '{"verdict":"REVISE"}'
+        assert result["tokens"] == {"in": 13, "out": 17}
+        assert captured["payload"]["model"] == "deepseek-v4-pro"
+        assert captured["payload"]["thinking"] == {"type": "enabled", "effort": "high"}
+        assert captured["headers"]["Authorization"] == "Bearer test-key"
+        assert captured["url"].endswith("/chat/completions")
+
+    def test_call_provider_routes_fallback_vendors(self, monkeypatch: pytest.MonkeyPatch):
+        seen: list[str] = []
+
+        def fake_ollama(provider, *args, **kwargs):
+            seen.append(provider)
+            return {"text": "ollama", "tokens": {"in": 1, "out": 1}}
+
+        def fake_deepseek(provider, *args, **kwargs):
+            seen.append(provider)
+            return {"text": "deepseek", "tokens": {"in": 1, "out": 1}}
+
+        monkeypatch.setattr(providers_mod, "_call_ollama", fake_ollama)
+        monkeypatch.setattr(providers_mod, "_call_deepseek", fake_deepseek)
+
+        assert call_provider("ollama-glm-5.2-cloud", "s", "u")["text"] == "ollama"
+        assert call_provider("deepseek-v4-pro", "s", "u")["text"] == "deepseek"
+        assert seen == ["ollama-glm-5.2-cloud", "deepseek-v4-pro"]

@@ -49,7 +49,7 @@ _SECRETS_PATH: pathlib.Path = (
     pathlib.Path.home() / ".nexus" / "workspace" / "active" / "vps2-secrets.env"
 )
 
-_PURGE_DAYS: int = 30
+_PURGE_DAYS: int = 60
 
 
 # ---------------------------------------------------------------------------

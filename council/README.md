@@ -3,7 +3,11 @@
 `/council` runs a three-model max-reasoning council (Gemini 3.1 Pro, Claude
 Opus 4.8, GPT-5.5) against a brief, anonymizes and voice-normalizes all three
 advisor outputs, then passes them to a runtime-native reconciler that synthesizes a
-single tier-stamped verdict while preserving documented dissent. Built against
+single tier-stamped verdict while preserving documented dissent. If one primary
+advisor lane is unavailable after retry, the orchestrator tries fallback
+advisors in deterministic order: Ollama Cloud GLM 5.2, then DeepSeek V4 Pro.
+Substitutes are marked in the advisor record and the original failure is
+preserved for auditability. Built against
 three documented 2026 multi-model failure modes: same-family ensemble collapse,
 sequential debate conformism, and reconciler self-enhancement bias. All three
 mitigations are mandatory in every run.
@@ -61,6 +65,13 @@ artifact quality → `/council` judges strategic merit → TECH dispatches.
 | `--min-quorum 2\|3` | 3 | 2 allows partial verdict if one advisor abstains |
 | `--keep-chains` | False | Persist raw advisor reasoning chains locally (chmod 600, 7-day purge) |
 | `--force-test` | False | Run AC-7 6-permutation order-bias harness (developer use only) |
+
+Fallback advisor credentials:
+
+- `OLLAMA_API_KEY` enables `ollama-glm-5.2-cloud`; `OLLAMA_BASE_URL` can point
+  to a non-default Ollama host.
+- `DEEPSEEK_API_KEY` enables `deepseek-v4-pro`; `DEEPSEEK_BASE_URL` can point
+  to a non-default DeepSeek-compatible endpoint.
 
 ## Pipeline
 
@@ -191,6 +202,9 @@ around them silently.
 - **Sequential advisor calls:** Step 4 calls the three advisors one at a time. Parallel dispatch is the v1.1 roadmap item; it would save approximately 60% of wall-clock time at standard depth.
 - **Runtime support routing:** Triage, brief normalization, voice normalization, and reconciliation use the host runtime model: GPT-5.5 for Codex/.agents, Claude runtime for Claude Code. Only the three advisor/auditor lanes remain fixed multi-vendor lanes.
 - **Reconciler family tradeoff:** The reconciler is runtime-native, so it can share a family with one advisor lane. Anonymization mitigates but does not eliminate this correlated-bias risk.
-- **No warm-pool fallback:** If the host runtime support model is unreachable, support routing fails and the council cannot proceed reliably. v1.1 adds a warm-pool fallback; v1.0 returns ABSTAIN/FAILED depending on the failed step.
+- **Support-model fallback remains limited:** Advisor lanes now have GLM/DeepSeek
+  fallbacks, but if the host runtime support model is unreachable, triage,
+  normalization, anonymization, and reconciliation can still fail. v1.1 adds a
+  warm-pool fallback for support routing.
 - **Western/English training bias:** All three advisor models are trained primarily on Western and English-language corpora. Confidence scores on non-Western strategic decisions should be treated with documented skepticism.
 - **Notion writeback is a stub (v1.0.4):** `_write_notion` always returns `notion_mcp_unavailable`. STRONG_PASS and BLOCK verdicts still receive Telegram + Cortex + filesystem records. Full Notion MCP (Model Context Protocol) integration ships in v1.1.

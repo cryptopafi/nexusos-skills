@@ -7,6 +7,7 @@ reasoning_effort: high
 version: "1.0.7-portable-v1"
 support_provider: gpt-5.5
 advisor_models: "gemini-3.1-pro, opus-4-8, gpt-5.5"
+fallback_advisor_models: "ollama-glm-5.2-cloud, deepseek-v4-pro"
 triage_threshold: 40
 default_depth: standard
 cost_cap_quick_usd: 2.00

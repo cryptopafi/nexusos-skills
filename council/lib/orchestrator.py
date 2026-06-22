@@ -14,9 +14,11 @@ import pathlib
 import sys
 import time
 import traceback
+import multiprocessing as mp
 from typing import Any
 
 from . import (
+    _advisor_common,
     advisor_gemini,
     advisor_gpt,
     advisor_opus,
@@ -44,6 +46,31 @@ _TRIAGE_THRESHOLD = 40
 
 # Tier names for INSUFFICIENT_QUORUM short-circuit.
 _TIER_INSUFFICIENT_QUORUM = "INSUFFICIENT_QUORUM"
+
+_ADVISOR_WALL_TIMEOUTS: dict[str, float] = {
+    "quick": 95.0,
+    "standard": 230.0,
+    "deep": 430.0,
+}
+
+_FALLBACK_ADVISOR_LANES: tuple[dict[str, Any], ...] = (
+    {
+        "lane_name": "advisor_fallback_ollama_glm_5_2_cloud",
+        "provider_key": "ollama-glm-5.2-cloud",
+        "display_name": "Ollama Cloud GLM 5.2",
+        "max_reasoning_kwargs": {
+            "options": {"num_ctx": 131072},
+        },
+    },
+    {
+        "lane_name": "advisor_fallback_deepseek_v4_pro",
+        "provider_key": "deepseek-v4-pro",
+        "display_name": "DeepSeek V4 Pro",
+        "max_reasoning_kwargs": {
+            "thinking": {"type": "enabled", "effort": "high"},
+        },
+    },
+)
 
 
 # ---------------------------------------------------------------------------
@@ -95,20 +122,34 @@ def _preflight_provider_check(depth: str, min_quorum: int, *, bypass: bool = Fal
     if not (gemini_oauth_ok or gemini_key_ok):
         unavailable.append("google (no gemini OAuth creds at ~/.gemini/oauth_creds.json and no GEMINI_API_KEY)")
 
-    available_count = 3 - len(unavailable)
+    fallback_available = _fallback_capacity()
+    available_count = 3 - len(unavailable) + min(len(unavailable), fallback_available)
     if available_count < min_quorum:
         raise ValueError(
             f"PREFLIGHT_FAIL: {len(unavailable)} advisor lane(s) unavailable "
             f"({', '.join(unavailable)}); available={available_count} < "
-            f"min_quorum={min_quorum}. Supply missing credentials or use "
-            f"--min-quorum {available_count} to proceed with partial council."
+            f"min_quorum={min_quorum}. Supply missing credentials, configure "
+            f"OLLAMA_API_KEY or DEEPSEEK_API_KEY fallbacks, or use "
+            f"--min-quorum {max(0, available_count)} to proceed with partial council."
         )
     if unavailable:
         warnings.append(
             f"WARN: {len(unavailable)} advisor lane(s) unavailable: "
-            f"{', '.join(unavailable)}. Council will run with {available_count}/3 advisors."
+            f"{', '.join(unavailable)}. Council will run with {available_count}/3 "
+            f"advisor capacity including {fallback_available} fallback candidate(s)."
         )
     return warnings
+
+
+def _fallback_capacity() -> int:
+    import os as _os
+    available = 0
+    from ._providers import _env_or_keychain
+    if _env_or_keychain("OLLAMA_API_KEY") or not _os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").startswith("https://ollama.com"):
+        available += 1
+    if _env_or_keychain("DEEPSEEK_API_KEY"):
+        available += 1
+    return min(available, len(_FALLBACK_ADVISOR_LANES))
 
 
 def _enforce_vendor_diversity() -> None:
@@ -598,13 +639,19 @@ def _build_advisor_list(
     """
     results: list[dict] = []
     lanes = [
-        ("advisor_gemini", "A", advisor_gemini.advise),
-        ("advisor_opus",   "B", advisor_opus.advise),
-        ("advisor_gpt",    "C", advisor_gpt.advise),
+        ("advisor_gemini", "A"),
+        ("advisor_opus",   "B"),
+        ("advisor_gpt",    "C"),
     ]
-    for lane_name, lane_letter, advise_fn in lanes:
+    for lane_name, lane_letter in lanes:
         try:
-            result = advise_fn(brief_xml, task_id=council_task_id, depth=depth)
+            result = _call_advisor_lane_with_timeout(
+                lane_name,
+                lane_letter,
+                brief_xml,
+                task_id=council_task_id,
+                depth=depth,
+            )
         except Exception as exc:
             from ._providers import PermanentProviderError
             is_permanent = isinstance(exc, PermanentProviderError)
@@ -637,7 +684,13 @@ def _build_advisor_list(
                 f"({result.get('error', result.get('status'))}); retrying once at depth={retry_depth}\n"
             )
             try:
-                result = advise_fn(brief_xml, task_id=council_task_id, depth=retry_depth)
+                result = _call_advisor_lane_with_timeout(
+                    lane_name,
+                    lane_letter,
+                    brief_xml,
+                    task_id=council_task_id,
+                    depth=retry_depth,
+                )
             except Exception as exc:
                 sys.stderr.write(
                     f"[orchestrator] advisor lane {lane_name} retry raised "
@@ -653,14 +706,142 @@ def _build_advisor_list(
                 result["status"] = "FAILED"
                 result["error"] = f"retry_failed: {type(exc).__name__}: {exc}"
 
+        if _should_try_fallback_advisor(result):
+            if _raw_cost_usd(result) > 0.0:
+                meter.add_raw(
+                    cost_usd=_raw_cost_usd(result),
+                    step=lane_name,
+                    label=f"{lane_name}:failed_before_fallback",
+                )
+            result = _try_fallback_advisors(
+                primary_result=result,
+                primary_lane_name=lane_name,
+                lane_letter=lane_letter,
+                brief_xml=brief_xml,
+                task_id=council_task_id,
+                depth=depth,
+            )
+
         # Accumulate cost into meter.
         raw_cost = _raw_cost_usd(result)
         if raw_cost > 0.0:
-            meter.add_raw(cost_usd=raw_cost, step=lane_name, label=lane_name)
+            meter.add_raw(
+                cost_usd=raw_cost,
+                step=_meter_step_for_result(result, lane_name),
+                label=str(result.get("advisor") or lane_name),
+            )
 
         results.append(result)
 
     return results
+
+
+def _advisor_lane_worker(
+    queue: Any,
+    lane_name: str,
+    lane_letter: str,
+    brief_xml: str,
+    task_id: str,
+    depth: str,
+) -> None:
+    try:
+        if lane_name == "advisor_gemini":
+            result = advisor_gemini.advise(brief_xml, task_id=task_id, depth=depth)
+        elif lane_name == "advisor_opus":
+            result = advisor_opus.advise(brief_xml, task_id=task_id, depth=depth)
+        elif lane_name == "advisor_gpt":
+            result = advisor_gpt.advise(brief_xml, task_id=task_id, depth=depth)
+        elif lane_name.startswith("advisor_fallback_"):
+            fallback = _fallback_lane_by_name(lane_name)
+            result = _advisor_common.run_advisor(
+                provider_key=fallback["provider_key"],
+                advisor_label=lane_letter,
+                brief_xml=brief_xml,
+                task_id=task_id,
+                depth=depth,
+                max_reasoning_kwargs=dict(fallback["max_reasoning_kwargs"]),
+            )
+        else:
+            raise ValueError(f"unknown advisor lane: {lane_name}")
+        queue.put(("ok", result))
+    except BaseException as exc:
+        queue.put(("error", type(exc).__name__, str(exc)))
+
+
+def _call_advisor_lane_with_timeout(
+    lane_name: str,
+    lane_letter: str,
+    brief_xml: str,
+    *,
+    task_id: str,
+    depth: str,
+) -> dict:
+    timeout_s = _ADVISOR_WALL_TIMEOUTS.get(depth, _ADVISOR_WALL_TIMEOUTS["standard"])
+    if "PYTEST_CURRENT_TEST" in __import__("os").environ:
+        queue: Any = _InlineQueue()
+        _advisor_lane_worker(queue, lane_name, lane_letter, brief_xml, task_id, depth)
+        item = queue.get()
+        if item[0] == "ok":
+            return item[1]
+        _tag, exc_name, exc_text = item
+        raise RuntimeError(f"{lane_name} worker raised {exc_name}: {exc_text}")
+    try:
+        ctx = mp.get_context("fork")
+    except ValueError:
+        ctx = mp.get_context()
+    queue = ctx.Queue(maxsize=1)
+    proc = ctx.Process(
+        target=_advisor_lane_worker,
+        args=(queue, lane_name, lane_letter, brief_xml, task_id, depth),
+        daemon=True,
+    )
+    proc.start()
+    proc.join(timeout_s)
+    if proc.is_alive():
+        proc.terminate()
+        proc.join(5)
+        if proc.is_alive():
+            proc.kill()
+            proc.join(5)
+        vk.emit(
+            f"dispatch_{lane_letter}",
+            "failed",
+            task_id,
+            error_class="timeout",
+        )
+        result = _make_abstain_placeholder(lane_name)
+        result["label"] = lane_letter
+        result["status"] = "TIMEOUT"
+        result["error"] = f"advisor lane exceeded {timeout_s:.0f}s wall timeout"
+        return result
+    if queue.empty():
+        vk.emit(
+            f"dispatch_{lane_letter}",
+            "failed",
+            task_id,
+            error_class="no_result",
+        )
+        result = _make_abstain_placeholder(lane_name)
+        result["label"] = lane_letter
+        result["status"] = "FAILED"
+        result["error"] = f"advisor lane exited without result (exitcode={proc.exitcode})"
+        return result
+    item = queue.get()
+    if item[0] == "ok":
+        return item[1]
+    _tag, exc_name, exc_text = item
+    raise RuntimeError(f"{lane_name} worker raised {exc_name}: {exc_text}")
+
+
+class _InlineQueue:
+    def __init__(self) -> None:
+        self._items: list[Any] = []
+
+    def put(self, item: Any) -> None:
+        self._items.append(item)
+
+    def get(self) -> Any:
+        return self._items.pop(0)
 
 
 def _raw_cost_usd(result: dict) -> float:
@@ -688,6 +869,107 @@ def _should_retry_failed_advisor(result: dict) -> bool:
     if status == "ABSTAIN" and verdict == "ABSTAIN" and error:
         return any(token in error for token in ("transient", "timeout", "timed out", "schema", "unavailable"))
     return False
+
+
+def _should_try_fallback_advisor(result: dict) -> bool:
+    status = str(result.get("status") or "").upper()
+    verdict = str(result.get("verdict") or "").upper()
+    error = str(result.get("error") or "").lower()
+    if verdict != "ABSTAIN":
+        return False
+    if status in {"UNAVAILABLE", "TIMEOUT", "FAILED", "FAIL_API", "SCHEMA_FAIL"}:
+        return True
+    if status != "ABSTAIN":
+        return False
+    return any(
+        token in error
+        for token in (
+            "[gemini]",
+            "[anthropic]",
+            "[openai]",
+            "capacity",
+            "resource_exhausted",
+            "timeout",
+            "timed out",
+            "transient_exhausted",
+            "auth",
+            "missing",
+            "rate-limit",
+        )
+    )
+
+
+def _try_fallback_advisors(
+    *,
+    primary_result: dict,
+    primary_lane_name: str,
+    lane_letter: str,
+    brief_xml: str,
+    task_id: str,
+    depth: str,
+) -> dict:
+    attempts: list[dict[str, Any]] = []
+    primary_error = str(primary_result.get("error") or primary_result.get("status") or "unknown")
+    for fallback in _FALLBACK_ADVISOR_LANES:
+        fallback_name = str(fallback["lane_name"])
+        sys.stderr.write(
+            f"[orchestrator] advisor lane {primary_lane_name} unavailable; "
+            f"trying fallback {fallback['provider_key']}\n"
+        )
+        try:
+            candidate = _call_advisor_lane_with_timeout(
+                fallback_name,
+                lane_letter,
+                brief_xml,
+                task_id=task_id,
+                depth=depth,
+            )
+        except Exception as exc:
+            candidate = _make_abstain_placeholder(fallback_name)
+            candidate["status"] = "FAILED"
+            candidate["error"] = f"fallback_failed: {type(exc).__name__}: {exc}"
+
+        candidate["label"] = lane_letter
+        candidate["substitute_for"] = primary_lane_name
+        candidate["primary_failure"] = _redact_failure(primary_error)
+        candidate["fallback_provider"] = fallback["provider_key"]
+        candidate["fallback_display_name"] = fallback["display_name"]
+        candidate["meter_step"] = fallback_name
+        attempts.append({
+            "provider_key": fallback["provider_key"],
+            "status": candidate.get("status"),
+            "verdict": candidate.get("verdict"),
+            "error": _redact_failure(str(candidate.get("error") or "")),
+        })
+        if candidate.get("status") == "OK" and candidate.get("verdict") != "ABSTAIN":
+            candidate["fallback_attempts"] = attempts
+            return candidate
+
+    result = dict(primary_result)
+    result["fallback_attempts"] = attempts
+    return result
+
+
+def _fallback_lane_by_name(lane_name: str) -> dict[str, Any]:
+    for fallback in _FALLBACK_ADVISOR_LANES:
+        if fallback["lane_name"] == lane_name:
+            return fallback
+    raise ValueError(f"unknown fallback advisor lane: {lane_name}")
+
+
+def _redact_failure(value: str, *, limit: int = 260) -> str:
+    text = str(value or "")
+    for marker in ("authorization", "api_key", "token", "secret", "password"):
+        text = text.replace(marker, "[redacted-field]")
+        text = text.replace(marker.upper(), "[REDACTED-FIELD]")
+    if len(text) > limit:
+        return text[: limit - 1].rstrip() + "…"
+    return text
+
+
+def _meter_step_for_result(result: dict, default: str) -> str:
+    step = result.get("meter_step")
+    return str(step or default)
 
 
 def _handle_quorum(

@@ -38,6 +38,9 @@ import subprocess
 import sys
 import tempfile
 from typing import Any
+from urllib.parse import urljoin
+
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -123,6 +126,21 @@ PROVIDER_REGISTRY: dict[str, dict[str, Any]] = {
         "model_id": "gpt-5.5",
         "price_in": 5.00 / 1e6,
         "price_out": 20.00 / 1e6,
+    },
+    "ollama-glm-5.2-cloud": {
+        "vendor": "ollama",
+        "model_id": "glm-5.2:cloud",
+        # Ollama cloud pricing is account-side; keep local meter conservative
+        # until the API returns billable usage in a stable field.
+        "price_in": 0.00,
+        "price_out": 0.00,
+    },
+    "deepseek-v4-pro": {
+        "vendor": "deepseek",
+        "model_id": "deepseek-v4-pro",
+        # Official DeepSeek V4-Pro pricing, cache-miss input + output.
+        "price_in": 0.435 / 1e6,
+        "price_out": 0.87 / 1e6,
     },
 }
 
@@ -231,6 +249,10 @@ def call_provider(
         return _call_openai(provider, model_id, system, user, max_tokens, temperature, timeout_s, **provider_kwargs)
     elif vendor == "google":
         return _call_google(provider, model_id, system, user, max_tokens, temperature, timeout_s, **provider_kwargs)
+    elif vendor == "ollama":
+        return _call_ollama(provider, model_id, system, user, max_tokens, temperature, timeout_s, **provider_kwargs)
+    elif vendor == "deepseek":
+        return _call_deepseek(provider, model_id, system, user, max_tokens, temperature, timeout_s, **provider_kwargs)
     else:
         raise PermanentProviderError(provider, f"unsupported vendor {vendor!r}")
 
@@ -587,6 +609,186 @@ def _call_openai(
     )
 
 
+def _post_json(
+    *,
+    provider: str,
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout_s: float,
+) -> dict[str, Any]:
+    try:
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=timeout_s,
+        )
+    except requests.Timeout as exc:
+        raise TransientProviderError(provider, f"request timed out after {timeout_s}s") from exc
+    except requests.RequestException as exc:
+        raise TransientProviderError(provider, f"request failed: {exc}") from exc
+
+    text = response.text[:500]
+    if response.status_code in {408, 409, 425, 429, 500, 502, 503, 504}:
+        raise TransientProviderError(
+            provider,
+            f"HTTP {response.status_code}: {text}",
+        )
+    if response.status_code in {401, 403}:
+        raise PermanentProviderError(
+            provider,
+            f"auth failed HTTP {response.status_code}: {text}",
+        )
+    if response.status_code >= 400:
+        raise PermanentProviderError(
+            provider,
+            f"HTTP {response.status_code}: {text}",
+        )
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise PermanentProviderError(provider, f"non-JSON response: {text}") from exc
+
+
+def _estimate_tokens(*parts: str) -> dict[str, int]:
+    prompt = "\n".join(parts)
+    return {"in": max(1, len(prompt.encode("utf-8")) // 4), "out": 0}
+
+
+def _env_or_keychain(service: str) -> str | None:
+    value = os.environ.get(service)
+    if value:
+        return value
+    security = shutil.which("security")
+    if not security:
+        return None
+    try:
+        result = subprocess.run(
+            [security, "find-generic-password", "-s", service, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=5.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    secret = (result.stdout or "").strip()
+    return secret or None
+
+
+def _call_ollama(
+    provider: str,
+    model_id: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+    timeout_s: float,
+    **provider_kwargs: Any,
+) -> dict[str, Any]:
+    api_key = _env_or_keychain("OLLAMA_API_KEY")
+    base_url = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").rstrip("/") + "/"
+    if base_url.startswith("https://ollama.com") and not api_key:
+        raise PermanentProviderError(
+            provider,
+            "missing OLLAMA_API_KEY for Ollama Cloud fallback",
+        )
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    options: dict[str, Any] = {
+        "temperature": temperature,
+        # GLM reasoning models can spend the first small budget on internal
+        # thinking and return an empty final content field. Keep a small floor
+        # so smoke calls and fallback advisor calls get a final answer.
+        "num_predict": max(int(max_tokens), 256),
+    }
+    if isinstance(provider_kwargs.get("options"), dict):
+        options.update(provider_kwargs["options"])
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "stream": False,
+        "options": options,
+    }
+    data = _post_json(
+        provider=provider,
+        url=urljoin(base_url, "api/chat"),
+        headers=headers,
+        payload=payload,
+        timeout_s=timeout_s,
+    )
+    message = data.get("message") or {}
+    text = message.get("content") if isinstance(message, dict) else None
+    if not text:
+        raise PermanentProviderError(provider, "Ollama response missing message.content")
+    tokens = {
+        "in": int(data.get("prompt_eval_count", 0) or _estimate_tokens(system, user)["in"]),
+        "out": int(data.get("eval_count", 0) or max(1, len(str(text).encode("utf-8")) // 4)),
+    }
+    return {"text": str(text), "tokens": tokens}
+
+
+def _call_deepseek(
+    provider: str,
+    model_id: str,
+    system: str,
+    user: str,
+    max_tokens: int,
+    temperature: float,
+    timeout_s: float,
+    **provider_kwargs: Any,
+) -> dict[str, Any]:
+    api_key = _env_or_keychain("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise PermanentProviderError(provider, "missing DEEPSEEK_API_KEY")
+
+    base_url = os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com").rstrip("/") + "/"
+    payload: dict[str, Any] = {
+        "model": model_id,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    thinking = provider_kwargs.get("thinking")
+    if isinstance(thinking, dict):
+        payload["thinking"] = thinking
+    data = _post_json(
+        provider=provider,
+        url=urljoin(base_url, "chat/completions"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        payload=payload,
+        timeout_s=timeout_s,
+    )
+    choices = data.get("choices") or []
+    if not choices or not isinstance(choices[0], dict):
+        raise PermanentProviderError(provider, "DeepSeek response missing choices")
+    message = choices[0].get("message") or {}
+    text = message.get("content") if isinstance(message, dict) else None
+    if not text:
+        raise PermanentProviderError(provider, "DeepSeek response missing message.content")
+    usage = data.get("usage") or {}
+    tokens = {
+        "in": int(usage.get("prompt_tokens", 0) or _estimate_tokens(system, user)["in"]),
+        "out": int(usage.get("completion_tokens", 0) or max(1, len(str(text).encode("utf-8")) // 4)),
+    }
+    return {"text": str(text), "tokens": tokens}
+
+
 
 def _classify_google_error(exc: Exception) -> tuple[str, str]:
     """Classify a Google SDK exception as ('transient'|'permanent', msg).
@@ -663,10 +865,10 @@ def _call_gemini_subprocess(
 
     if result.returncode != 0:
         err = (result.stderr or "").lower()
+        if any(code in err for code in ("capacity", "resource_exhausted", "rate", "429", "500", "502", "503", "504")):
+            raise TransientProviderError("gemini", f"gemini-cli transient: {result.stderr[:200]}")
         if "auth" in err or "401" in err or "login" in err:
             raise PermanentProviderError("gemini", f"gemini-cli auth: {result.stderr[:200]}")
-        if any(code in err for code in ("rate", "429", "500", "502", "503", "504")):
-            raise TransientProviderError("gemini", f"gemini-cli transient: {result.stderr[:200]}")
         raise PermanentProviderError("gemini", f"gemini-cli error rc={result.returncode}: {result.stderr[:200]}")
 
     text = (result.stdout or "").strip()
