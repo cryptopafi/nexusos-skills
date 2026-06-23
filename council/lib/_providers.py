@@ -798,6 +798,7 @@ def _classify_google_error(exc: Exception) -> tuple[str, str]:
     """
     try:
         from google.api_core import exceptions as gax
+        msg = str(exc).lower()
         transient_types = (
             gax.DeadlineExceeded, gax.ResourceExhausted,
             gax.ServiceUnavailable, gax.InternalServerError,
@@ -808,6 +809,8 @@ def _classify_google_error(exc: Exception) -> tuple[str, str]:
             gax.NotFound, gax.InvalidArgument,
             gax.FailedPrecondition,
         )
+        if isinstance(exc, gax.ResourceExhausted) and _is_zero_quota_google_error(msg):
+            return ("permanent", str(exc))
         if isinstance(exc, transient_types):
             return ("transient", str(exc))
         if isinstance(exc, permanent_types):
@@ -818,6 +821,8 @@ def _classify_google_error(exc: Exception) -> tuple[str, str]:
     msg = str(exc).lower()
     if any(k in msg for k in ("timeout", "deadline", "timed out")):
         return ("transient", str(exc))
+    if _is_zero_quota_google_error(msg):
+        return ("permanent", str(exc))
     if any(k in msg for k in ("quota", "429", "503", "504")):
         return ("transient", str(exc))
     if any(k in msg for k in ("500", "502", "internal")):
@@ -825,6 +830,18 @@ def _classify_google_error(exc: Exception) -> tuple[str, str]:
     if any(k in msg for k in ("unauthenticated", "api key", "invalid key", "401", "403", "permission")):
         return ("permanent", str(exc))
     return ("permanent", f"unexpected_internal: {type(exc).__name__}: {exc}")
+
+
+def _is_zero_quota_google_error(msg: str) -> bool:
+    return (
+        "limit: 0" in msg
+        and (
+            "free_tier" in msg
+            or "free-tier" in msg
+            or "current quota" in msg
+            or "quota exceeded" in msg
+        )
+    )
 
 
 def _call_gemini_subprocess(
@@ -865,11 +882,12 @@ def _call_gemini_subprocess(
 
     if result.returncode != 0:
         err = (result.stderr or "").lower()
+        err_summary = _summarize_gemini_cli_error(result.stderr or "")
         if any(code in err for code in ("capacity", "resource_exhausted", "rate", "429", "500", "502", "503", "504")):
-            raise TransientProviderError("gemini", f"gemini-cli transient: {result.stderr[:200]}")
+            raise TransientProviderError("gemini", f"gemini-cli transient: {err_summary}")
         if "auth" in err or "401" in err or "login" in err:
-            raise PermanentProviderError("gemini", f"gemini-cli auth: {result.stderr[:200]}")
-        raise PermanentProviderError("gemini", f"gemini-cli error rc={result.returncode}: {result.stderr[:200]}")
+            raise PermanentProviderError("gemini", f"gemini-cli auth: {err_summary}")
+        raise PermanentProviderError("gemini", f"gemini-cli error rc={result.returncode}: {err_summary}")
 
     text = (result.stdout or "").strip()
     # gemini-cli emits some startup warnings on stderr ("256-color support", "Ripgrep…") — ignore.
@@ -898,9 +916,18 @@ def _call_google(
         and (_pathlib.Path.home() / ".gemini" / "oauth_creds.json").exists()
     )
     if cli_available:
-        return _call_gemini_subprocess(
-            model=model_id, system=system, user=user, timeout_s=timeout_s,
-        )
+        try:
+            return _call_gemini_subprocess(
+                model=model_id, system=system, user=user, timeout_s=timeout_s,
+            )
+        except TransientProviderError:
+            raise
+        except PermanentProviderError:
+            if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
+                raise
+            # CLI OAuth can be disabled for an account while the API key path is
+            # still separately configured. Try the SDK before declaring Google unavailable.
+            logger.warning("gemini-cli permanent failure; trying Gemini SDK API-key fallback")
 
     # SDK fallback (legacy path)
     try:
@@ -963,3 +990,36 @@ def _call_google(
         if kind == "transient":
             raise TransientProviderError(provider, msg) from exc
         raise PermanentProviderError(provider, msg) from exc
+
+
+def _summarize_gemini_cli_error(stderr: str, *, limit: int = 600) -> str:
+    """Return the useful Gemini CLI failure, skipping terminal capability noise."""
+    lines = []
+    for raw in (stderr or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if lower.startswith("warning: basic terminal"):
+            continue
+        if lower.startswith("warning: 256-color support"):
+            continue
+        if line.startswith("at ") or line.startswith("file://"):
+            continue
+        lines.append(line)
+    preferred = [
+        line for line in lines
+        if any(token in line.lower() for token in (
+            "error authenticating",
+            "service has been disabled",
+            "violation of terms",
+            "resource_exhausted",
+            "model_capacity",
+            "quota",
+            "forbidden",
+            "permission",
+            "unauthorized",
+        ))
+    ]
+    summary = " | ".join(preferred[:4] or lines[:4]) or "unknown gemini-cli failure"
+    return summary[:limit]

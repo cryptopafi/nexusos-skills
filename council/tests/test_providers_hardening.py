@@ -412,6 +412,121 @@ class TestGeminiCliTransientClassification:
                 timeout_s=5.0,
             )
 
+    def test_gemini_cli_auth_error_keeps_root_cause(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        import pathlib as _pathlib
+        import shutil as _shutil
+        import subprocess as _subprocess
+
+        monkeypatch.setattr(_shutil, "which", lambda cmd: "/usr/bin/gemini" if cmd == "gemini" else None)
+        monkeypatch.setattr(_pathlib.Path, "exists", lambda self: True)
+        completed = _subprocess.CompletedProcess(
+            args=["gemini"],
+            returncode=1,
+            stdout="",
+            stderr=(
+                "Warning: Basic terminal detected (TERM=dumb). Visual rendering will be limited.\n"
+                "Warning: 256-color support not detected. Using a terminal is recommended.\n"
+                "Error authenticating: _GaxiosError: This service has been disabled in this account for violation of Terms of Service.\n"
+            ),
+        )
+        monkeypatch.setattr(_subprocess, "run", lambda *a, **kw: completed)
+
+        with pytest.raises(PermanentProviderError) as exc_info:
+            providers_mod._call_gemini_subprocess(
+                model="gemini-3.1-pro-preview",
+                system="sys",
+                user="usr",
+                timeout_s=5.0,
+            )
+
+        msg = str(exc_info.value)
+        assert "service has been disabled" in msg.lower()
+        assert "basic terminal" not in msg.lower()
+
+
+class TestGeminiCliSdkFallback:
+
+    def test_call_google_falls_back_to_sdk_after_permanent_cli_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        import pathlib as _pathlib
+        import shutil as _shutil
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(_shutil, "which", lambda cmd: "/usr/bin/gemini" if cmd == "gemini" else None)
+        monkeypatch.setattr(_pathlib.Path, "exists", lambda self: True)
+        monkeypatch.setattr(
+            providers_mod,
+            "_call_gemini_subprocess",
+            lambda **kwargs: (_ for _ in ()).throw(
+                PermanentProviderError("gemini", "gemini-cli auth: service disabled")
+            ),
+        )
+
+        class _FakeUsage:
+            prompt_token_count = 3
+            candidates_token_count = 2
+
+        class _FakeResponse:
+            text = "sdk ok"
+            usage_metadata = _FakeUsage()
+
+        class _FakeModels:
+            def generate_content(self, model, contents, config):
+                return _FakeResponse()
+
+        class _FakeClient:
+            models = _FakeModels()
+
+        monkeypatch.setattr(providers_mod, "_GOOGLE_SDK", "genai")
+        monkeypatch.setattr(providers_mod, "_get_gemini_client", lambda: _FakeClient())
+
+        result = _call_google(
+            "gemini-3.1-pro", "gemini-3.1-pro-preview",
+            "sys", "usr", 256, 0.2, 30.0,
+            thinking_config={"thinking_level": "high"},
+        )
+
+        assert result["text"] == "sdk ok"
+        assert result["tokens"] == {"in": 3, "out": 2}
+
+    def test_call_google_does_not_sdk_fallback_after_transient_cli_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        import pathlib as _pathlib
+        import shutil as _shutil
+
+        monkeypatch.setenv("GEMINI_API_KEY", "test-key")
+        monkeypatch.setattr(_shutil, "which", lambda cmd: "/usr/bin/gemini" if cmd == "gemini" else None)
+        monkeypatch.setattr(_pathlib.Path, "exists", lambda self: True)
+        monkeypatch.setattr(
+            providers_mod,
+            "_call_gemini_subprocess",
+            lambda **kwargs: (_ for _ in ()).throw(
+                TransientProviderError("gemini", "gemini-cli transient: 429")
+            ),
+        )
+
+        with pytest.raises(TransientProviderError):
+            _call_google(
+                "gemini-3.1-pro", "gemini-3.1-pro-preview",
+                "sys", "usr", 256, 0.2, 30.0,
+            )
+
+    def test_zero_quota_google_error_is_permanent(self):
+        kind, msg = providers_mod._classify_google_error(
+            Exception(
+                "429 RESOURCE_EXHAUSTED: Quota exceeded for metric "
+                "generativelanguage.googleapis.com/generate_content_free_tier_requests, "
+                "limit: 0, model: gemini-3.1-pro"
+            )
+        )
+
+        assert kind == "permanent"
+        assert "limit: 0" in msg
+
 
 class TestFallbackProviderAdapters:
 
