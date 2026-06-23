@@ -17,7 +17,7 @@ class _Meter:
 
 def _failed_primary() -> dict[str, Any]:
     return {
-        "advisor": "gemini-3.1-pro",
+        "advisor": "ollama-glm-5.2-cloud",
         "label": "A",
         "verdict": "ABSTAIN",
         "confidence": 0.0,
@@ -55,7 +55,7 @@ def _ok(provider: str, label: str = "A") -> dict[str, Any]:
     }
 
 
-def test_failed_primary_uses_ollama_glm_first(monkeypatch):
+def test_failed_primary_skips_duplicate_ollama_and_uses_deepseek(monkeypatch):
     from lib import orchestrator
 
     calls: list[str] = []
@@ -64,22 +64,24 @@ def test_failed_primary_uses_ollama_glm_first(monkeypatch):
         calls.append(lane_name)
         if lane_name == "advisor_gemini":
             return _failed_primary()
-        if lane_name == "advisor_fallback_ollama_glm_5_2_cloud":
-            return _ok("ollama-glm-5.2-cloud", lane_letter)
+        if lane_name == "advisor_fallback_deepseek_v4_pro":
+            return _ok("deepseek-v4-pro", lane_letter)
         return _ok(lane_name, lane_letter)
 
     monkeypatch.setattr(orchestrator, "_call_advisor_lane_with_timeout", fake_call)
 
     results = orchestrator._build_advisor_list("<council_brief/>", "task-1", "standard", _Meter())
 
-    assert calls[:2] == ["advisor_gemini", "advisor_fallback_ollama_glm_5_2_cloud"]
-    assert results[0]["advisor"] == "ollama-glm-5.2-cloud"
+    assert calls[:2] == ["advisor_gemini", "advisor_fallback_deepseek_v4_pro"]
+    assert results[0]["advisor"] == "deepseek-v4-pro"
     assert results[0]["substitute_for"] == "advisor_gemini"
     assert results[0]["primary_failure"] == "MODEL_CAPACITY_EXHAUSTED"
+    assert results[0]["fallback_attempts"][0]["provider_key"] == "ollama-glm-5.2-cloud"
+    assert results[0]["fallback_attempts"][0]["status"] == "SKIPPED"
     assert results[0]["label"] == "A"
 
 
-def test_fallback_chain_uses_deepseek_when_ollama_fails(monkeypatch):
+def test_duplicate_ollama_primary_falls_through_to_deepseek(monkeypatch):
     from lib import orchestrator
 
     calls: list[str] = []
@@ -88,11 +90,6 @@ def test_fallback_chain_uses_deepseek_when_ollama_fails(monkeypatch):
         calls.append(lane_name)
         if lane_name == "advisor_gemini":
             return _failed_primary()
-        if lane_name == "advisor_fallback_ollama_glm_5_2_cloud":
-            failed = _failed_primary()
-            failed["advisor"] = "ollama-glm-5.2-cloud"
-            failed["error"] = "missing OLLAMA_API_KEY"
-            return failed
         if lane_name == "advisor_fallback_deepseek_v4_pro":
             return _ok("deepseek-v4-pro", lane_letter)
         return _ok(lane_name, lane_letter)
@@ -101,13 +98,13 @@ def test_fallback_chain_uses_deepseek_when_ollama_fails(monkeypatch):
 
     results = orchestrator._build_advisor_list("<council_brief/>", "task-2", "standard", _Meter())
 
-    assert calls[:3] == [
+    assert calls[:2] == [
         "advisor_gemini",
-        "advisor_fallback_ollama_glm_5_2_cloud",
         "advisor_fallback_deepseek_v4_pro",
     ]
     assert results[0]["advisor"] == "deepseek-v4-pro"
     assert results[0]["fallback_attempts"][0]["provider_key"] == "ollama-glm-5.2-cloud"
+    assert results[0]["fallback_attempts"][0]["status"] == "SKIPPED"
     assert results[0]["fallback_attempts"][1]["provider_key"] == "deepseek-v4-pro"
 
 

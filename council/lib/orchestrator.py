@@ -95,9 +95,9 @@ def _preflight_provider_check(depth: str, min_quorum: int, *, bypass: bool = Fal
 
     import os as _os
     import shutil as _shutil
-    import pathlib as _pathlib
     warnings: list[str] = []
     unavailable: list[str] = []
+    from ._providers import _env_or_keychain
 
     # Anthropic via claude CLI
     if not _shutil.which("claude"):
@@ -116,11 +116,13 @@ def _preflight_provider_check(depth: str, min_quorum: int, *, bypass: bool = Fal
             except Exception:
                 unavailable.append("openai (missing OPENAI_API_KEY and codex auth check failed)")
 
-    # Google (prefer gemini-cli OAuth; fall back to GEMINI_API_KEY)
-    gemini_oauth_ok = bool(_shutil.which("gemini") and (_pathlib.Path.home() / ".gemini" / "oauth_creds.json").exists())
-    gemini_key_ok = bool(_os.environ.get("GEMINI_API_KEY") or _os.environ.get("GOOGLE_API_KEY"))
-    if not (gemini_oauth_ok or gemini_key_ok):
-        unavailable.append("google (no gemini OAuth creds at ~/.gemini/oauth_creds.json and no GEMINI_API_KEY)")
+    # Advisor A: Ollama Cloud GLM 5.2.
+    ollama_ok = bool(
+        _env_or_keychain("OLLAMA_API_KEY")
+        or not _os.environ.get("OLLAMA_BASE_URL", "https://ollama.com").startswith("https://ollama.com")
+    )
+    if not ollama_ok:
+        unavailable.append("ollama (missing OLLAMA_API_KEY for Ollama Cloud GLM 5.2)")
 
     fallback_available = _fallback_capacity()
     available_count = 3 - len(unavailable) + min(len(unavailable), fallback_available)
@@ -910,11 +912,21 @@ def _try_fallback_advisors(
 ) -> dict:
     attempts: list[dict[str, Any]] = []
     primary_error = str(primary_result.get("error") or primary_result.get("status") or "unknown")
+    primary_provider = str(primary_result.get("advisor") or primary_result.get("provider_key") or "")
     for fallback in _FALLBACK_ADVISOR_LANES:
         fallback_name = str(fallback["lane_name"])
+        fallback_provider = str(fallback["provider_key"])
+        if fallback_provider == primary_provider:
+            attempts.append({
+                "provider_key": fallback_provider,
+                "status": "SKIPPED",
+                "verdict": "ABSTAIN",
+                "error": "fallback provider matches failed primary",
+            })
+            continue
         sys.stderr.write(
             f"[orchestrator] advisor lane {primary_lane_name} unavailable; "
-            f"trying fallback {fallback['provider_key']}\n"
+            f"trying fallback {fallback_provider}\n"
         )
         try:
             candidate = _call_advisor_lane_with_timeout(
@@ -932,11 +944,11 @@ def _try_fallback_advisors(
         candidate["label"] = lane_letter
         candidate["substitute_for"] = primary_lane_name
         candidate["primary_failure"] = _redact_failure(primary_error)
-        candidate["fallback_provider"] = fallback["provider_key"]
+        candidate["fallback_provider"] = fallback_provider
         candidate["fallback_display_name"] = fallback["display_name"]
         candidate["meter_step"] = fallback_name
         attempts.append({
-            "provider_key": fallback["provider_key"],
+            "provider_key": fallback_provider,
             "status": candidate.get("status"),
             "verdict": candidate.get("verdict"),
             "error": _redact_failure(str(candidate.get("error") or "")),

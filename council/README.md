@@ -1,6 +1,6 @@
 # advisor-council — /council Skill  `v1.0.7`
 
-`/council` runs a three-model max-reasoning council (Gemini 3.1 Pro, Claude
+`/council` runs a three-model max-reasoning council (Ollama Cloud GLM 5.2, Claude
 Opus 4.8, GPT-5.5) against a brief, anonymizes and voice-normalizes all three
 advisor outputs, then passes them to a runtime-native reconciler that synthesizes a
 single tier-stamped verdict while preserving documented dissent. If one primary
@@ -90,7 +90,7 @@ Step 3 — Normalize (runtime-native support model)
    <council_brief> XML written to brief.md
 
 Step 4 — Parallel advisors (200s timeout at standard depth)
-   Lane A (Gemini 3.1 Pro, thinking_level=high): PASS conf=0.82
+   Lane A (Ollama Cloud GLM 5.2, num_ctx=131072): PASS conf=0.82
    Lane B (Opus 4.8, thinking.effort=high): REVISE conf=0.71
    Lane C (GPT-5.5, reasoning.effort=xhigh): PASS conf=0.78
 

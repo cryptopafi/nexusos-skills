@@ -362,8 +362,8 @@ class TestFIXH2VendorDiversityEnforced:
 
         # Make all 3 advisor PROVIDER_KEYs map to vendor="anthropic"
         fake_registry = dict(_providers.PROVIDER_REGISTRY)
-        fake_registry["gemini-3.1-pro"] = {**fake_registry.get("gemini-3.1-pro", {}),
-                                            "vendor": "anthropic"}
+        fake_registry["ollama-glm-5.2-cloud"] = {**fake_registry.get("ollama-glm-5.2-cloud", {}),
+                                                  "vendor": "anthropic"}
         fake_registry["gpt-5.5"] = {**fake_registry.get("gpt-5.5", {}),
                                     "vendor": "anthropic"}
         # opus-4-8 is already anthropic
@@ -374,7 +374,7 @@ class TestFIXH2VendorDiversityEnforced:
             orchestrator.run_council("Some brief text", depth="standard")
 
     def test_vendor_diversity_passes_with_3_vendors(self, monkeypatch):
-        """Default config has google + anthropic + openai — must not raise."""
+        """Default config has ollama + anthropic + openai — must not raise."""
         from lib import orchestrator
 
         # Use happy-path mocks so the pipeline completes without API calls
@@ -390,7 +390,7 @@ class TestFIXH2VendorDiversityEnforced:
             "duration_s": 0.1, "error": None,
         })
         monkeypatch.setattr("lib.advisor_gemini.advise",
-                            lambda *a, **kw: _make_advisor("A", "gemini-3.1-pro"))
+                            lambda *a, **kw: _make_advisor("A", "ollama-glm-5.2-cloud"))
         monkeypatch.setattr("lib.advisor_opus.advise",
                             lambda *a, **kw: _make_advisor("B", "opus-4-8"))
         monkeypatch.setattr("lib.advisor_gpt.advise",
@@ -663,8 +663,8 @@ class TestFIXC1PreflightProviderCheck:
         from lib.orchestrator import _preflight_provider_check
 
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        # Ensure claude CLI and GEMINI_API_KEY appear present
-        monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+        # Ensure claude CLI and Advisor A's Ollama key appear present.
+        monkeypatch.setenv("OLLAMA_API_KEY", "fake-ollama-key")
         monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/local/bin/claude" if cmd == "claude" else None)
 
         warnings = _preflight_provider_check("standard", min_quorum=2)
@@ -679,13 +679,14 @@ class TestFIXC1PreflightProviderCheck:
         from lib.orchestrator import _preflight_provider_check
 
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-        monkeypatch.setenv("GEMINI_API_KEY", "fake-gemini-key")
+        monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
         monkeypatch.setattr(shutil, "which", lambda cmd: "/usr/local/bin/claude" if cmd == "claude" else None)
 
         with pytest.raises(ValueError, match="PREFLIGHT_FAIL") as exc_info:
             _preflight_provider_check("standard", min_quorum=3)
 
         assert "OPENAI_API_KEY" in str(exc_info.value)
+        assert "OLLAMA_API_KEY" in str(exc_info.value)
 
 
 # ===========================================================================

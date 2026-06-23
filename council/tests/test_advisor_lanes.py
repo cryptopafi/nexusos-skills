@@ -48,18 +48,18 @@ def _make_response(text: str) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Gemini lane (Advisor A) — cases 1-3
+# Advisor A lane (Ollama Cloud GLM 5.2; module name kept for compatibility) — cases 1-3
 # ---------------------------------------------------------------------------
 
-class TestGeminiLane:
+class TestAdvisorALane:
 
-    def test_gemini_module_exists(self):
+    def test_advisor_a_module_exists(self):
         """Case 1: advisor_gemini module imports cleanly and exposes advise()."""
         import lib.advisor_gemini as gemini_mod
         assert callable(gemini_mod.advise)
 
-    def test_gemini_kwargs_propagation(self, monkeypatch: pytest.MonkeyPatch):
-        """Case 2: advise() calls run_advisor with provider_key=gemini-3.1-pro and correct max_reasoning_kwargs."""
+    def test_advisor_a_kwargs_propagation(self, monkeypatch: pytest.MonkeyPatch):
+        """Case 2: advise() calls run_advisor with provider_key=ollama-glm-5.2-cloud and correct max_reasoning_kwargs."""
         import lib.advisor_gemini as gemini_mod
 
         captured: dict[str, Any] = {}
@@ -88,11 +88,11 @@ class TestGeminiLane:
 
         gemini_mod.advise("<council_brief>test</council_brief>", task_id=_TASK_ID)
 
-        assert captured["provider_key"] == "gemini-3.1-pro"
-        assert captured["max_reasoning_kwargs"] == {"thinking_config": {"thinking_level": "high"}}
+        assert captured["provider_key"] == "ollama-glm-5.2-cloud"
+        assert captured["max_reasoning_kwargs"] == {"options": {"num_ctx": 131072}}
 
-    def test_gemini_advisor_label(self, monkeypatch: pytest.MonkeyPatch):
-        """Case 3: Gemini lane sets advisor_label='A'."""
+    def test_advisor_a_label(self, monkeypatch: pytest.MonkeyPatch):
+        """Case 3: Advisor A lane sets advisor_label='A'."""
         import lib.advisor_gemini as gemini_mod
 
         captured: dict[str, Any] = {}

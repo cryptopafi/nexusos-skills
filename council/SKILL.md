@@ -6,8 +6,8 @@ metadata:
   model: gpt-5.5
   reasoning_effort: high
   version: "1.0.7-portable-v1"
-  advisor_models: "gemini-3.1-pro, opus-4-8, gpt-5.5"
-  fallback_advisor_models: "ollama-glm-5.2-cloud, deepseek-v4-pro"
+  advisor_models: "ollama-glm-5.2-cloud, opus-4-8, gpt-5.5"
+  fallback_advisor_models: "deepseek-v4-pro"
   cost_cap_deep_usd: 18.00
   cost_cap_quick_usd: 2.00
   cost_cap_standard_usd: 6.00
@@ -29,12 +29,12 @@ Runtime-neutral council behavior: evaluate a decision target with multiple indep
 
 ## Purpose
 
-`/council` runs Gemini 3.1 Pro, Claude Opus 4.8, and GPT-5.5 as independent
+`/council` runs Ollama Cloud GLM 5.2, Claude Opus 4.8, and GPT-5.5 as independent
 advisor lanes at max-reasoning intensity on the same brief, then Codex's native
 GPT-5.5 support model synthesizes a single decision while preserving dissent.
 Advisor models remain fixed as first choice; if one primary advisor lane is
 unavailable, the orchestrator tries fallback advisors in deterministic order:
-Ollama Cloud GLM 5.2, then DeepSeek V4 Pro. Substituted lanes preserve the
+Ollama Cloud GLM 5.2 for non-Ollama primary failures, then DeepSeek V4 Pro. Substituted lanes preserve the
 original failure in ledger-visible metadata and are marked as substitutes. All
 non-advisor support work uses the Codex runtime. Designed for judgment-heavy
 targets where multi-perspective deliberation provides real signal over

@@ -2,7 +2,7 @@
 runtime.py -- Runtime-aware support-model routing for /council.
 
 Advisor lanes stay fixed:
-  - Gemini 3.1 Pro
+  - Ollama Cloud GLM 5.2
   - Claude Opus 4.8
   - GPT-5.5
 

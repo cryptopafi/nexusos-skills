@@ -614,7 +614,9 @@ def _validate_revision_consistency(revised: dict, original_verdict: str) -> bool
 
 def _get_max_reasoning_kwargs(provider_key: str) -> dict:
     """Return provider-specific max-reasoning kwargs for debate revision calls."""
-    if provider_key == "gemini-3.1-pro":
+    if provider_key == "ollama-glm-5.2-cloud":
+        return {"options": {"num_ctx": 131072}}
+    elif provider_key == "gemini-3.1-pro":
         return {"thinking_config": {"thinking_level": "high"}}
     elif provider_key == "opus-4-8":
         return {"thinking": {"type": "enabled", "effort": "high"}}
