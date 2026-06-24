@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: "Complete 8-step session handoff: scan for unsaved Cortex skills, create session summary file, update task files, compact MEMORY.md, check background agents, verify active modes, git sync, and deliver final report. Use this whenever ending a session, switching contexts, or the user says 'handoff', '/handoff', 'save session', 'wrap up everything', 'session end'. This is the COMPREHENSIVE session-end procedure with zero information loss. For a quick lightweight summary, use session-summary instead."
+description: "Complete comprehensive session handoff: scan for unsaved Cortex skills, update LLM-Wiki when durable reusable knowledge changed, create session summary file, update task files, compact MEMORY.md, check background agents, verify active modes, git sync, and deliver final report. Use this whenever ending a session, switching contexts, or the user says 'handoff', '/handoff', 'save session', 'wrap up everything', 'session end'. This is the COMPREHENSIVE session-end procedure with zero information loss. For a quick lightweight summary, use session-summary instead."
 disable-model-invocation: true
 argument-hint: [optional notes about what to prioritize]
 ---
@@ -35,6 +35,7 @@ Do NOT invoke this skill when:
 |-------|-------|----------|
 | Cortex HTTP 422 | FORGE format missing required sections or metadata fields | Add `# Problema`, `# Procedura`, `# Enforcement Loop`; set `has_enforcement_loop: true` (boolean), `forge_version: "2.0"` |
 | Cortex unreachable | Network/service down | Save to `memory/pending-cortex-saves.md`; continue handoff |
+| LLM-Wiki write-through fails | Invalid type/category, script failure, or wiki path unavailable | Save intended payload and exact error to `memory/pending-wiki-saves.md`; continue handoff |
 | Notion API 404 on create | Wrong `database_id` used | Read DB ID from `~/.nexus/config/notion.json` → `team_dashboard_db_id`; do NOT use `data_source_id` |
 | Notion API rate limit / 5xx | Transient error | Exponential backoff: 1s→2s→4s→8s, max 4 retries; on final failure queue to `~/.nexus/pending-dashboard-entries.json` |
 | Git push rejected | Diverged remote | Report error with exact message; do NOT force-push; continue to Step 8 |
@@ -50,6 +51,7 @@ Do NOT invoke this skill when:
 | Session file for today already exists | APPEND new content — do not overwrite |
 | MEMORY.md is already under 180 lines | Skip compaction, note "Already compact" in report |
 | No new Cortex skills to save | Skip Step 1 saves, announce "Nothing new to save" |
+| No durable Wiki knowledge to save | Skip Step 1.7, record "LLM-Wiki: not applicable — {reason}" |
 | No new tools/skills/procedures created | Skip Step 1.5 Dashboard Update entirely |
 | Active mode file absent | Treat as "no active mode"; do not create the file |
 | Background agents list is empty | Report "No background agents running" |
@@ -137,6 +139,37 @@ For each new skill, procedure, tool, or agent created or significantly updated t
 
 **Skip if**: No new tools/skills/procedures were created this session.
 
+## Step 1.7: LLM-Wiki Write-Through
+
+After Cortex/Dashboard saves, decide whether this handoff includes durable reusable knowledge that should be retrievable from NexusOS LLM-Wiki. Do not skip this silently.
+
+Write to LLM-Wiki when the session created or clarified:
+- Durable operating rules, project decisions, launch/status changes, tool-routing rules, or data-source authority changes.
+- Verified technical findings, fixes, procedures, audits, integration notes, or incident resolutions.
+- Source material, transcripts, raw notes, or evidence packets that should be preserved as source notes.
+
+Skip for pure chat, trivial status answers, routine todos already captured in task files, and failed explorations with no reusable finding. Record the skip reason in the session summary and final report.
+
+Use the write-through script:
+
+```bash
+~/.nexus/scripts/wiki-write-through.py \
+  --type concept \
+  --category project \
+  --title "short title" \
+  --raw "what changed / what was discovered" \
+  --summary "one paragraph summary" \
+  --source-agent claude
+```
+
+Use `--type concept` for reusable knowledge, `--type source` for raw source notes/transcripts/evidence, and `--type entity` only for stable people/companies/products/projects. Use one of the script's allowed categories, such as `project`, `tech`, `business`, `research`, `legal`, `finance`, `marketing`, or `internal`; if unsure, run `--dry-run` first or use the nearest valid category.
+
+Rules:
+- Never write secrets, credential values, hidden prompts, chain-of-thought, or raw private logs to Wiki.
+- Include paths, Cortex IDs, project-card sync IDs, commit hashes, and external source URLs only when useful and safe.
+- If write-through fails, append the intended title/summary/raw payload and exact error to `memory/pending-wiki-saves.md` and continue handoff.
+- Announce: `[Wiki #N written: "{title}" -> {path}]` or `[Wiki skipped: {reason}]`.
+
 ## Step 2: Create Session Summary
 
 Acquire lock (see Concurrent Write Guard) for the session file before writing.
@@ -162,6 +195,9 @@ If a file for today already exists, APPEND to it (don't overwrite).
 
 ## Cortex Saves
 - [list of Cortex IDs saved this session]
+
+## LLM-Wiki Updates
+- [wiki paths written, or "Not applicable — reason", or pending-wiki queue path]
 
 ## Business Context Updates
 - [any corrections to business info, user preferences, etc.]
@@ -227,6 +263,7 @@ Present a clean summary to the user:
 --- HANDOFF COMPLETE ---
 
 Skills saved: N (list titles)
+LLM-Wiki updates: N (paths) or Not applicable — reason
 Session file: memory/sessions/session-{date}-{machine}.md
 Tasks pending: N (list briefly)
 Background agents: N running (list IDs)
@@ -249,6 +286,7 @@ Ready for new session or continuation.
 
 - NEVER ask the user questions during handoff — just execute
 - NEVER skip Cortex saves — this is the #1 cause of lost knowledge
+- NEVER skip the LLM-Wiki decision silently — write durable reusable knowledge or record why it was not applicable
 - NEVER hardcode Cortex URLs or Notion DB IDs — always read from config files
 - If MEMORY.md is already compact, don't force changes
 - If there's nothing new to save, say so and skip that step
